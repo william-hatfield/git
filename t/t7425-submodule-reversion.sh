@@ -138,14 +138,14 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--recursive and --reverse-traversal parses' '
+test_expect_success '--recursive and --reverse-traversal parses' '
 	(
 		cd reversive/top &&
 		git submodule foreach --recursive --reverse-traversal "true"
 	)
 '
 
-test_expect_failure '--recursive and --reverse-traversal runs' '
+test_expect_success '--recursive and --reverse-traversal runs' '
 	(
 		cd reversive/top &&
 		git submodule --quiet foreach --recursive \

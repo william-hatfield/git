@@ -264,12 +264,18 @@ static char *get_up_path(const char *path)
 }
 
 static void for_each_listed_submodule(const struct module_list *list,
-				      each_submodule_fn fn, void *cb_data)
+				      each_submodule_fn fn, void *cb_data,
+				      int reverse)
 {
 	int i;
 
-	for (i = 0; i < list->nr; i++)
-		fn(list->entries[i], cb_data);
+	if (reverse) {
+		for (i = list->nr - 1; i >= 0; i--)
+			fn(list->entries[i], cb_data);
+	} else {
+		for (i = 0; i < list->nr; i++)
+			fn(list->entries[i], cb_data);
+	}
 }
 
 struct foreach_cb {
@@ -279,6 +285,7 @@ struct foreach_cb {
 	const char *super_prefix;
 	int quiet;
 	int recursive;
+	int reverse_traversal;
 };
 #define FOREACH_CB_INIT { 0 }
 
@@ -352,6 +359,33 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		strvec_pushv(&cp.args, info->argv);
 	}
 
+	/*
+	 * For --reverse-traversal, recurse into nested submodules first
+	 * (post-order traversal: children before parents).
+	 */
+	if (info->recursive && info->reverse_traversal) {
+		struct child_process cpr = CHILD_PROCESS_INIT;
+
+		cpr.git_cmd = 1;
+		cpr.dir = path;
+		prepare_submodule_repo_env(&cpr.env);
+
+		strvec_pushl(&cpr.args, "submodule--helper", "foreach", "--recursive",
+			     "--reverse-traversal", NULL);
+		strvec_pushf(&cpr.args, "--super-prefix=%s/", displaypath);
+
+		if (info->quiet)
+			strvec_push(&cpr.args, "--quiet");
+
+		strvec_push(&cpr.args, "--");
+		strvec_pushv(&cpr.args, info->argv);
+
+		if (run_command(&cpr))
+			die(_("run_command returned non-zero status while "
+				"recursing in the nested submodules of %s\n."),
+				displaypath);
+	}
+
 	if (!info->quiet)
 		printf(_("Entering '%s'\n"), displaypath);
 
@@ -363,7 +397,8 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		child_process_clear(&cp);
 	}
 
-	if (info->recursive) {
+	/* For normal (pre-order) recursion, recurse after command execution. */
+	if (info->recursive && !info->reverse_traversal) {
 		struct child_process cpr = CHILD_PROCESS_INIT;
 
 		cpr.git_cmd = 1;
@@ -401,10 +436,12 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 		OPT__QUIET(&info.quiet, N_("suppress output of entering each submodule command")),
 		OPT_BOOL(0, "recursive", &info.recursive,
 			 N_("recurse into nested submodules")),
+		OPT_BOOL(0, "reverse-traversal", &info.reverse_traversal,
+			 N_("traverse submodules in reverse order (post-order)")),
 		OPT_END()
 	};
 	const char *const git_submodule_helper_usage[] = {
-		N_("git submodule foreach [--quiet] [--recursive] [--] <command>"),
+		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--] <command>"),
 		NULL
 	};
 	int ret = 1;
@@ -419,7 +456,8 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 	info.argv = argv;
 	info.prefix = prefix;
 
-	for_each_listed_submodule(&list, runcommand_in_submodule_cb, &info);
+	for_each_listed_submodule(&list, runcommand_in_submodule_cb, &info,
+				  info.reverse_traversal);
 
 	ret = 0;
 cleanup:
@@ -558,7 +596,7 @@ static int module_init(int argc, const char **argv, const char *prefix,
 	if (quiet)
 		info.flags |= OPT_QUIET;
 
-	for_each_listed_submodule(&list, init_submodule_cb, &info);
+	for_each_listed_submodule(&list, init_submodule_cb, &info, 0);
 
 	ret = 0;
 cleanup:
@@ -742,7 +780,7 @@ static int module_status(int argc, const char **argv, const char *prefix,
 	if (quiet)
 		info.flags |= OPT_QUIET;
 
-	for_each_listed_submodule(&list, status_submodule_cb, &info);
+	for_each_listed_submodule(&list, status_submodule_cb, &info, 0);
 
 	ret = 0;
 cleanup:
@@ -1345,7 +1383,7 @@ static int module_sync(int argc, const char **argv, const char *prefix,
 	if (recursive)
 		info.flags |= OPT_RECURSIVE;
 
-	for_each_listed_submodule(&list, sync_submodule_cb, &info);
+	for_each_listed_submodule(&list, sync_submodule_cb, &info, 0);
 
 	ret = 0;
 cleanup:
@@ -1501,7 +1539,7 @@ static int module_deinit(int argc, const char **argv, const char *prefix,
 	if (force)
 		info.flags |= OPT_FORCE;
 
-	for_each_listed_submodule(&list, deinit_submodule_cb, &info);
+	for_each_listed_submodule(&list, deinit_submodule_cb, &info, 0);
 
 	ret = 0;
 cleanup:
@@ -2885,7 +2923,7 @@ static int module_update(int argc, const char **argv, const char *prefix,
 		if (opt.quiet)
 			info.flags |= OPT_QUIET;
 
-		for_each_listed_submodule(&list, init_submodule_cb, &info);
+		for_each_listed_submodule(&list, init_submodule_cb, &info, 0);
 		module_list_release(&list);
 	}
 

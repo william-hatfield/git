@@ -173,6 +173,9 @@ cmd_foreach()
 		--recursive)
 			recursive=$1
 			;;
+		--reverse-traversal)
+			reverse_traversal=$1
+			;;
 		-*)
 			usage
 			;;
@@ -186,6 +189,7 @@ cmd_foreach()
 	git ${wt_prefix:+-C "$wt_prefix"} submodule--helper foreach \
 		$quiet \
 		$recursive \
+		$reverse_traversal \
 		-- \
 		"$@"
 }
