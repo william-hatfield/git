@@ -231,14 +231,14 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--reversive parses' '
+test_expect_success '--reversive parses' '
 	(
 		cd reversive/top &&
 		git submodule foreach --reversive "true"
 	)
 '
 
-test_expect_failure '--reversive runs' '
+test_expect_success '--reversive runs' '
 	(
 		cd reversive/top &&
 		git submodule --quiet foreach --reversive "echo \$displaypath"
@@ -261,7 +261,7 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--reversive stops on command failure' '
+test_expect_success '--reversive stops on command failure' '
 	(
 		cd reversive/top &&
 		git submodule foreach --reversive "true" &&

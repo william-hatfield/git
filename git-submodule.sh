@@ -179,6 +179,11 @@ cmd_foreach()
 		--append-superproject)
 			append_superproject=$1
 			;;
+		--reversive)
+			recursive=--recursive
+			reverse_traversal=--reverse-traversal
+			append_superproject=--append-superproject
+			;;
 		-*)
 			usage
 			;;

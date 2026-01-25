@@ -432,6 +432,7 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 	struct foreach_cb info = FOREACH_CB_INIT;
 	struct pathspec pathspec = { 0 };
 	struct module_list list = MODULE_LIST_INIT;
+	int reversive = 0;
 	struct option module_foreach_options[] = {
 		OPT__SUPER_PREFIX(&info.super_prefix),
 		OPT__QUIET(&info.quiet, N_("suppress output of entering each submodule command")),
@@ -441,16 +442,24 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 			 N_("traverse submodules in reverse order (post-order)")),
 		OPT_BOOL(0, "append-superproject", &info.append_superproject,
 			 N_("also run command in superproject after submodules")),
+		OPT_BOOL(0, "reversive", &reversive,
+			 N_("shorthand for --recursive --reverse-traversal --append-superproject")),
 		OPT_END()
 	};
 	const char *const git_submodule_helper_usage[] = {
-		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--append-superproject] [--] <command>"),
+		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--append-superproject] [--reversive] [--] <command>"),
 		NULL
 	};
 	int ret = 1;
 
 	argc = parse_options(argc, argv, prefix, module_foreach_options,
 			     git_submodule_helper_usage, 0);
+
+	if (reversive) {
+		info.recursive = 1;
+		info.reverse_traversal = 1;
+		info.append_superproject = 1;
+	}
 
 	if (module_list_compute(NULL, prefix, &pathspec, &list) < 0)
 		goto cleanup;
