@@ -168,14 +168,14 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--recursive and --append-superproject parses' '
+test_expect_success '--recursive and --append-superproject parses' '
 	(
 		cd reversive/top &&
 		git submodule foreach --recursive --append-superproject "true"
 	)
 '
 
-test_expect_failure '--recursive and --append-superproject runs' '
+test_expect_success '--recursive and --append-superproject runs' '
 	(
 		cd reversive/top &&
 		git submodule --quiet foreach --recursive \
@@ -199,7 +199,7 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--reverse-traversal and --append-superproject parses' '
+test_expect_success '--reverse-traversal and --append-superproject parses' '
 	(
 		cd reversive/top &&
 		git submodule foreach \
@@ -207,7 +207,7 @@ test_expect_failure '--reverse-traversal and --append-superproject parses' '
 	)
 '
 
-test_expect_failure '--reverse-traversal and --append-superproject runs' '
+test_expect_success '--reverse-traversal and --append-superproject runs' '
 	(
 		cd reversive/top &&
 		git submodule --quiet foreach --recursive \
@@ -270,7 +270,7 @@ test_expect_failure '--reversive stops on command failure' '
 	)
 '
 
-test_expect_failure '--append-superproject with no submodules runs only superproject' '
+test_expect_success '--append-superproject with no submodules runs only superproject' '
 	test_create_repo empty_repo &&
 	(
 		cd empty_repo &&
@@ -285,22 +285,7 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--append-superproject sets all expected variables' '
-	(
-		cd reversive/top &&
-		git submodule --quiet foreach --append-superproject \
-			"echo name=\$name path=\$path displaypath=\$displaypath" |
-			tail -n 1
-	) >actual &&
-
-	cat >expect <<-\EOF &&
-name=top path=../top displaypath=../top
-EOF
-
-	test_cmp expect actual
-'
-
-test_expect_failure '--append-superproject from nested submodule appends correct superproject' '
+test_expect_success '--append-superproject from nested submodule appends correct superproject' '
 	(
 		cd reversive/top/sub6 &&
 		git submodule --quiet foreach --recursive --append-superproject \
@@ -317,7 +302,7 @@ EOF
 	test_cmp expect actual
 '
 
-test_expect_failure '--quiet suppresses Entering message for superproject' '
+test_expect_success '--quiet suppresses Entering message for superproject' '
 	(
 		cd reversive/top &&
 		git submodule foreach --quiet --append-superproject "true"

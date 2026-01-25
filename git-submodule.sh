@@ -176,6 +176,9 @@ cmd_foreach()
 		--reverse-traversal)
 			reverse_traversal=$1
 			;;
+		--append-superproject)
+			append_superproject=$1
+			;;
 		-*)
 			usage
 			;;
@@ -190,6 +193,7 @@ cmd_foreach()
 		$quiet \
 		$recursive \
 		$reverse_traversal \
+		$append_superproject \
 		-- \
 		"$@"
 }

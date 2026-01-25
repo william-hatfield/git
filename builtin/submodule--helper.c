@@ -286,6 +286,7 @@ struct foreach_cb {
 	int quiet;
 	int recursive;
 	int reverse_traversal;
+	int append_superproject;
 };
 #define FOREACH_CB_INIT { 0 }
 
@@ -438,10 +439,12 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 			 N_("recurse into nested submodules")),
 		OPT_BOOL(0, "reverse-traversal", &info.reverse_traversal,
 			 N_("traverse submodules in reverse order (post-order)")),
+		OPT_BOOL(0, "append-superproject", &info.append_superproject,
+			 N_("also run command in superproject after submodules")),
 		OPT_END()
 	};
 	const char *const git_submodule_helper_usage[] = {
-		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--] <command>"),
+		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--append-superproject] [--] <command>"),
 		NULL
 	};
 	int ret = 1;
@@ -458,6 +461,32 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 
 	for_each_listed_submodule(&list, runcommand_in_submodule_cb, &info,
 				  info.reverse_traversal);
+
+	/*
+	 * Run command in superproject after all submodules, but only at the
+	 * top-level invocation (not during recursion into nested submodules).
+	 */
+	if (info.append_superproject && !info.super_prefix) {
+		struct child_process cp = CHILD_PROCESS_INIT;
+		char *toplevel = xgetcwd();
+		const char *slash = find_last_dir_sep(toplevel);
+		const char *super_name = slash ? slash + 1 : toplevel;
+		char *displaypath = xstrfmt("../%s", super_name);
+
+		cp.use_shell = 1;
+		cp.dir = toplevel;
+		strvec_pushf(&cp.env, "displaypath=%s", displaypath);
+		strvec_pushv(&cp.args, info.argv);
+
+		if (!info.quiet)
+			printf(_("Entering '%s'\n"), displaypath);
+
+		if (run_command(&cp))
+			die(_("command failed in superproject\n"));
+
+		free(displaypath);
+		free(toplevel);
+	}
 
 	ret = 0;
 cleanup:
