@@ -437,6 +437,26 @@ options carefully.
 	only in the submodules of the current repo, but also
 	in any nested submodules inside those submodules (and so on).
 
+--reverse-traversal::
+	This option is only valid for the foreach command and requires
+	`--recursive`.  Process nested submodules in post-order (deepest
+	first) rather than the default pre-order.  This is useful for
+	cleanup operations where nested submodules must be processed
+	before their parents.
+
+--append-superproject::
+	This option is only valid for the foreach command and requires
+	`--recursive`.  After processing all submodules, also run the
+	command in the superproject (top-level repository).  The
+	superproject is displayed as `../<name>` to mirror submodule
+	output style.
+
+--reversive::
+	This option is only valid for the foreach command and is
+	shorthand for `--recursive --reverse-traversal --append-superproject`.
+	It provides a complete "reverse" traversal: deepest submodules
+	first, then their parents, and finally the superproject.
+
 --depth::
 	This option is valid for add and update commands. Create a 'shallow'
 	clone with a history truncated to the specified number of revisions.
