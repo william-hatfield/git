@@ -324,6 +324,7 @@ struct foreach_cb {
 	int quiet;
 	int recursive;
 	int reverse_traversal;
+	int include_superproject;
 };
 #define FOREACH_CB_INIT { 0 }
 
@@ -447,6 +448,36 @@ cleanup:
 	free(displaypath);
 }
 
+/*
+ * Run the command in the repository foreach was started in. The helper runs
+ * in its top level, so the command does too. Unlike for a submodule, the
+ * environment that selects this repository (GIT_DIR, GIT_INDEX_FILE, ...)
+ * is kept. Only $displaypath is set.
+ */
+static void run_command_in_superproject(const struct foreach_cb *info)
+{
+	struct child_process cp = CHILD_PROCESS_INIT;
+	char *toplevel = xgetcwd();
+	const char *slash = find_last_dir_sep(toplevel);
+	const char *name = slash ? slash + 1 : toplevel;
+
+	cp.use_shell = 1;
+	strvec_pushf(&cp.env, "displaypath=%s", name);
+	strvec_pushv(&cp.args, info->argv);
+
+	if (!info->quiet)
+		printf(_("Entering '%s'\n"), name);
+
+	if (info->argv[0]) {
+		if (run_command(&cp))
+			die(_("command failed in the superproject"));
+	} else {
+		child_process_clear(&cp);
+	}
+
+	free(toplevel);
+}
+
 static int module_foreach(int argc, const char **argv, const char *prefix,
 			  struct repository *repo UNUSED)
 {
@@ -461,10 +492,12 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 			 N_("recurse into nested submodules")),
 		OPT_BOOL(0, "reverse-traversal", &info.reverse_traversal,
 			 N_("visit submodules in the reverse of the usual order")),
+		OPT_BOOL(0, "include-superproject", &info.include_superproject,
+			 N_("also run the command in the superproject, last")),
 		OPT_END()
 	};
 	const char *const git_submodule_helper_usage[] = {
-		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--] <command>"),
+		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--include-superproject] [--] <command>"),
 		NULL
 	};
 	int ret = 1;
@@ -484,6 +517,9 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 			SWAP(list.entries[i], list.entries[j]);
 
 	for_each_listed_submodule(&list, runcommand_in_submodule_cb, &info);
+
+	if (info.include_superproject)
+		run_command_in_superproject(&info);
 
 	ret = 0;
 cleanup:

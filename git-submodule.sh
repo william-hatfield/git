@@ -14,7 +14,7 @@ USAGE="[--quiet] [--cached]
    or: $dashless [--quiet] set-branch (--default|--branch <branch>) [--] <path>
    or: $dashless [--quiet] set-url [--] <path> <newurl>
    or: $dashless [--quiet] summary [--cached|--files] [--summary-limit <n>] [commit] [--] [<path>...]
-   or: $dashless [--quiet] foreach [--recursive] [--reverse-traversal] <command>
+   or: $dashless [--quiet] foreach [--recursive] [--reverse-traversal] [--include-superproject] <command>
    or: $dashless [--quiet] sync [--recursive] [--] [<path>...]
    or: $dashless [--quiet] absorbgitdirs [--] [<path>...]"
 OPTIONS_SPEC=
@@ -37,6 +37,7 @@ reference=
 cached=
 recursive=
 reverse_traversal=
+include_superproject=
 init=
 require_init=
 files=
@@ -177,6 +178,9 @@ cmd_foreach()
 		--reverse-traversal)
 			reverse_traversal=$1
 			;;
+		--include-superproject)
+			include_superproject=$1
+			;;
 		-*)
 			usage
 			;;
@@ -191,6 +195,7 @@ cmd_foreach()
 		$quiet \
 		$recursive \
 		$reverse_traversal \
+		$include_superproject \
 		-- \
 		"$@"
 }

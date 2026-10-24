@@ -3,11 +3,13 @@
 # Copyright (c) 2026 William Hatfield
 #
 
-test_description='git submodule foreach --reverse-traversal
+test_description='git submodule foreach --reverse-traversal and --include-superproject
 
 Check that --reverse-traversal visits submodules in the reverse of their
 usual order, and that, together with --recursive, each submodule is
-visited after the submodules nested in it.
+visited after the submodules nested in it. Check that
+--include-superproject also runs the command in the superproject, after
+all the submodules.
 '
 
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
@@ -210,6 +212,208 @@ test_expect_success 'committing in reverse order leaves nested submodules clean'
 		"git commit -q -a -m update || :" &&
 	git -C fwd/sub6 status --porcelain >fwd.sub6 &&
 	test_file_not_empty fwd.sub6
+'
+
+test_expect_success '--include-superproject runs the command in the superproject last' '
+	git -C reversive/top submodule --quiet foreach --recursive \
+		--include-superproject "echo \$displaypath" >actual &&
+	cat >expect <<-\EOF &&
+	sub0
+	sub1
+	sub1/sub2
+	sub3
+	sub3/sub4
+	sub3/sub5
+	sub6
+	sub6/sub7
+	sub6/sub7/sub8
+	sub6/sub7/sub9
+	top
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject combines with --reverse-traversal' '
+	git -C reversive/top submodule --quiet foreach --recursive \
+		--reverse-traversal --include-superproject \
+		"echo \$displaypath" >actual &&
+	cat >expect <<-\EOF &&
+	sub6/sub7/sub9
+	sub6/sub7/sub8
+	sub6/sub7
+	sub6
+	sub3/sub5
+	sub3/sub4
+	sub3
+	sub1/sub2
+	sub1
+	sub0
+	top
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject announces the superproject' '
+	git -C reversive/top submodule foreach --include-superproject \
+		true >out &&
+	test_grep "^Entering .top.$" out &&
+	git -C reversive/top submodule foreach --quiet \
+		--include-superproject true >out &&
+	test_grep ! Entering out
+'
+
+test_expect_success '--include-superproject in a repository without submodules' '
+	test_create_repo "no subs" &&
+	git -C "no subs" submodule --quiet foreach --include-superproject \
+		"echo \"[\$displaypath]\"" >actual &&
+	echo "[no subs]" >expect &&
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject uses the repository it is run in' '
+	git -C reversive/top/sub6 submodule --quiet foreach --recursive \
+		--include-superproject "echo \$displaypath" >actual &&
+	cat >expect <<-\EOF &&
+	sub7
+	sub7/sub8
+	sub7/sub9
+	sub6
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject runs from a subdirectory at the top level' '
+	mkdir -p reversive/top/dir &&
+	git -C reversive/top/dir submodule --quiet foreach \
+		--include-superproject "pwd -P" >out &&
+	tail -n 1 out >actual &&
+	(cd reversive/top && pwd -P) >expect &&
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject sets only $displaypath and keeps the rest of the environment' '
+	git -C "no subs" submodule --quiet foreach --include-superproject \
+		"echo \"[\$displaypath][\$name][\$sm_path][\$sha1][\$toplevel]\"" \
+		>actual &&
+	echo "[no subs][][][][]" >expect &&
+	test_cmp expect actual &&
+
+	write_script nested-foreach <<-\EOF &&
+	git submodule --quiet foreach --include-superproject \
+		'\''printf "%s|%s|%s|%s\n" "$displaypath" "$sm_path" "$sha1" "$toplevel"'\''
+	EOF
+	git -C reversive/top submodule --quiet foreach \
+		"if test \"\$name\" = sub0; then \"$TRASH_DIRECTORY/nested-foreach\"; fi" \
+		>actual &&
+	sub0_oid=$(git -C reversive/top rev-parse HEAD:sub0) &&
+	top=$(cd reversive/top && pwd -P) &&
+	echo "sub0|sub0|$sub0_oid|$top" >expect &&
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject preserves a detached worktree' '
+	git clone --bare reversive/top detached.git &&
+	mkdir detached &&
+	(
+		cd detached &&
+		GIT_DIR="$(pwd)/../detached.git" &&
+		GIT_WORK_TREE="$(pwd)" &&
+		export GIT_DIR GIT_WORK_TREE &&
+		git checkout --quiet &&
+		git submodule update --init &&
+		git submodule --quiet foreach --include-superproject \
+			"git rev-parse --show-toplevel" >../actual
+	) &&
+	(
+		cd detached &&
+		for sub in sub0 sub1 sub3 sub6
+		do
+			(cd "$sub" && pwd -P) || return 1
+		done &&
+		pwd -P
+	) >expect &&
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject preserves the selected index' '
+	git clone --recurse-submodules reversive/top index-super &&
+	cp index-super/.git/index index-super/custom-index &&
+	echo content >index-super/alternate-file &&
+	GIT_INDEX_FILE=custom-index git -C index-super add alternate-file &&
+	mkdir index-super/dir &&
+	for dir in index-super index-super/dir
+	do
+		GIT_INDEX_FILE=custom-index git -C $dir submodule --quiet \
+			foreach --include-superproject \
+			"if test \"\$displaypath\" = index-super; then
+				git ls-files --error-unmatch alternate-file
+			else
+				test -z \"\$GIT_INDEX_FILE\"
+			fi" >actual &&
+		echo alternate-file >expect &&
+		test_cmp expect actual || return 1
+	done &&
+	test_must_fail git -C index-super ls-files --error-unmatch \
+		alternate-file >/dev/null 2>&1
+'
+
+test_expect_success '--include-superproject commits from the selected index' '
+	cp index-super/.git/index default-index-before &&
+	test_tick &&
+	GIT_INDEX_FILE=custom-index git -C index-super submodule --quiet \
+		foreach --include-superproject \
+		"if test \"\$displaypath\" = index-super; then
+			git commit -q -m alternate-index
+		else
+			test -z \"\$GIT_INDEX_FILE\"
+		fi" &&
+	git -C index-super show HEAD:alternate-file >actual &&
+	echo content >expect &&
+	test_cmp expect actual &&
+	test_cmp_bin default-index-before index-super/.git/index
+'
+
+test_expect_success '--include-superproject does not run after a failure' '
+	test_must_fail git -C reversive/top submodule --quiet foreach \
+		--recursive --reverse-traversal --include-superproject \
+		"echo \$displaypath; test \$name != sub8" >actual 2>err &&
+	cat >expect <<-\EOF &&
+	sub6/sub7/sub9
+	sub6/sub7/sub8
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success '--include-superproject reports a failing superproject' '
+	test_must_fail git -C reversive/top submodule --quiet foreach \
+		--include-superproject "test \$displaypath != top" 2>err &&
+	test_grep "command failed in the superproject" err
+'
+
+test_expect_success 'committing in the submodules and the superproject leaves nothing modified' '
+	git clone --recurse-submodules reversive/top full &&
+	echo changed >full/file &&
+	echo changed >full/sub0/file &&
+	echo changed >full/sub3/sub5/file &&
+	echo changed >full/sub6/sub7/sub9/file &&
+	git -C full submodule foreach --quiet --recursive \
+		--reverse-traversal --include-superproject \
+		"git commit -q -a -m \"update \$displaypath\" || :" &&
+	git -C full status --porcelain >actual &&
+	test_must_be_empty actual &&
+	for path in sub0 sub3/sub5 sub3 sub6/sub7/sub9 sub6/sub7 sub6
+	do
+		case "$path" in
+		*/*) parent=${path%/*} && child=${path##*/} ;;
+		*) parent=. && child=$path ;;
+		esac &&
+		current=$(git -C "full/$path" rev-parse HEAD) &&
+		original=$(git -C "reversive/top/$path" rev-parse HEAD) &&
+		test "$current" != "$original" &&
+		echo "$current" >expect &&
+		git -C "full/$parent" rev-parse "HEAD:$child" >actual &&
+		test_cmp expect actual || return 1
+	done
 '
 
 test_done
