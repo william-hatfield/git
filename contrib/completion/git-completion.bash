@@ -3645,7 +3645,7 @@ _git_submodule ()
 		__gitcomp "--cached --files --summary-limit"
 		;;
 	foreach,--*)
-		__gitcomp "--recursive --reverse-traversal --include-superproject"
+		__gitcomp "--recursive --reverse-traversal --include-superproject --reversive"
 		;;
 	sync,--*)
 		__gitcomp "--recursive"

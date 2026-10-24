@@ -3,13 +3,14 @@
 # Copyright (c) 2026 William Hatfield
 #
 
-test_description='git submodule foreach --reverse-traversal and --include-superproject
+test_description='git submodule foreach --reverse-traversal, --include-superproject and --reversive
 
 Check that --reverse-traversal visits submodules in the reverse of their
 usual order, and that, together with --recursive, each submodule is
 visited after the submodules nested in it. Check that
 --include-superproject also runs the command in the superproject, after
-all the submodules.
+all the submodules, and that --reversive is a shorthand for all three of
+these options.
 '
 
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
@@ -414,6 +415,15 @@ test_expect_success 'committing in the submodules and the superproject leaves no
 		git -C "full/$parent" rev-parse "HEAD:$child" >actual &&
 		test_cmp expect actual || return 1
 	done
+'
+
+test_expect_success '--reversive is --recursive --reverse-traversal --include-superproject' '
+	git -C reversive/top submodule --quiet foreach --recursive \
+		--reverse-traversal --include-superproject \
+		"echo \$displaypath" >expect &&
+	git -C reversive/top submodule --quiet foreach --reversive \
+		"echo \$displaypath" >actual &&
+	test_cmp expect actual
 '
 
 test_done

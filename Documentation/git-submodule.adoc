@@ -18,7 +18,7 @@ git submodule [--quiet] update [<options>] [--] [<path>...]
 git submodule [--quiet] set-branch [<options>] [--] <path>
 git submodule [--quiet] set-url [--] <path> <newurl>
 git submodule [--quiet] summary [<options>] [--] [<path>...]
-git submodule [--quiet] foreach [--recursive] [--reverse-traversal] [--include-superproject] <command>
+git submodule [--quiet] foreach [--recursive] [--reverse-traversal] [--include-superproject] [--reversive] <command>
 git submodule [--quiet] sync [--recursive] [--] [<path>...]
 git submodule [--quiet] absorbgitdirs [--] [<path>...]
 
@@ -222,7 +222,7 @@ specifications.
 Using the `--submodule=log` option with linkgit:git-diff[1] will provide that
 information too.
 
-`foreach [--recursive] [--reverse-traversal] [--include-superproject] <command>`::
+`foreach [--recursive] [--reverse-traversal] [--include-superproject] [--reversive] <command>`::
 	Evaluate an arbitrary shell _<command>_ in each checked out submodule.
 	The command has access to the variables `$name`, `$sm_path`, `$displaypath`,
 	`$sha1` and `$toplevel`:
@@ -255,6 +255,8 @@ superproject, that is, at the top level of the repository `foreach` was
 started in, after all the submodules. There, Git sets `$displaypath` to
 the name of that directory and sets none of the other variables listed
 above, although they may come from the environment.
+`--reversive` is a shorthand for giving `--recursive`,
+`--reverse-traversal` and `--include-superproject` together.
 A non-zero return from the command in any submodule causes
 the processing to terminate. This can be overridden by adding ++||:++
 to the end of the command.
@@ -270,8 +272,7 @@ And this shows the path of each submodule and then of the superproject,
 visiting the submodules nested in a submodule before the submodule itself:
 +
 --------------
-git submodule --quiet foreach --recursive --reverse-traversal \
-	--include-superproject 'echo $displaypath'
+git submodule --quiet foreach --reversive 'echo $displaypath'
 --------------
 
 `sync [--recursive] [--] [<path>...]`::
@@ -472,6 +473,11 @@ NOTE: See the NOTE above for the `--reference` option.
 `--include-superproject`::
 	Also evaluate the command in the superproject, after all the
 	submodules. This option is only valid for the `foreach` command.
+
+`--reversive`::
+	A shorthand for `--recursive --reverse-traversal
+	--include-superproject`. This option is only valid for the `foreach`
+	command.
 
 `--depth=<depth>`::
 	Create a 'shallow' clone with a history truncated to the _<depth>_ revisions.
