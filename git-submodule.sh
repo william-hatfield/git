@@ -14,7 +14,7 @@ USAGE="[--quiet] [--cached]
    or: $dashless [--quiet] set-branch (--default|--branch <branch>) [--] <path>
    or: $dashless [--quiet] set-url [--] <path> <newurl>
    or: $dashless [--quiet] summary [--cached|--files] [--summary-limit <n>] [commit] [--] [<path>...]
-   or: $dashless [--quiet] foreach [--recursive] <command>
+   or: $dashless [--quiet] foreach [--recursive] [--reverse-traversal] <command>
    or: $dashless [--quiet] sync [--recursive] [--] [<path>...]
    or: $dashless [--quiet] absorbgitdirs [--] [<path>...]"
 OPTIONS_SPEC=
@@ -36,6 +36,7 @@ force=
 reference=
 cached=
 recursive=
+reverse_traversal=
 init=
 require_init=
 files=
@@ -173,6 +174,9 @@ cmd_foreach()
 		--recursive)
 			recursive=$1
 			;;
+		--reverse-traversal)
+			reverse_traversal=$1
+			;;
 		-*)
 			usage
 			;;
@@ -186,6 +190,7 @@ cmd_foreach()
 	git ${wt_prefix:+-C "$wt_prefix"} submodule--helper foreach \
 		$quiet \
 		$recursive \
+		$reverse_traversal \
 		-- \
 		"$@"
 }

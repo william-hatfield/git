@@ -323,8 +323,37 @@ struct foreach_cb {
 	const char *super_prefix;
 	int quiet;
 	int recursive;
+	int reverse_traversal;
 };
 #define FOREACH_CB_INIT { 0 }
+
+static void recurse_into_nested_submodules(const struct foreach_cb *info,
+					   const char *path,
+					   const char *displaypath)
+{
+	struct child_process cpr = CHILD_PROCESS_INIT;
+
+	cpr.git_cmd = 1;
+	cpr.dir = path;
+	prepare_submodule_repo_env(&cpr.env);
+
+	strvec_pushl(&cpr.args, "submodule--helper", "foreach", "--recursive",
+		     NULL);
+	if (info->reverse_traversal)
+		strvec_push(&cpr.args, "--reverse-traversal");
+	strvec_pushf(&cpr.args, "--super-prefix=%s/", displaypath);
+
+	if (info->quiet)
+		strvec_push(&cpr.args, "--quiet");
+
+	strvec_push(&cpr.args, "--");
+	strvec_pushv(&cpr.args, info->argv);
+
+	if (run_command(&cpr))
+		die(_("run_command returned non-zero status while "
+			"recursing in the nested submodules of %s\n."),
+			displaypath);
+}
 
 static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 				       void *cb_data)
@@ -396,6 +425,10 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		strvec_pushv(&cp.args, info->argv);
 	}
 
+	/* With reverse traversal, visit nested submodules first. */
+	if (info->recursive && info->reverse_traversal)
+		recurse_into_nested_submodules(info, path, displaypath);
+
 	if (!info->quiet)
 		printf(_("Entering '%s'\n"), displaypath);
 
@@ -407,28 +440,8 @@ static void runcommand_in_submodule_cb(const struct cache_entry *list_item,
 		child_process_clear(&cp);
 	}
 
-	if (info->recursive) {
-		struct child_process cpr = CHILD_PROCESS_INIT;
-
-		cpr.git_cmd = 1;
-		cpr.dir = path;
-		prepare_submodule_repo_env(&cpr.env);
-
-		strvec_pushl(&cpr.args, "submodule--helper", "foreach", "--recursive",
-			     NULL);
-		strvec_pushf(&cpr.args, "--super-prefix=%s/", displaypath);
-
-		if (info->quiet)
-			strvec_push(&cpr.args, "--quiet");
-
-		strvec_push(&cpr.args, "--");
-		strvec_pushv(&cpr.args, info->argv);
-
-		if (run_command(&cpr))
-			die(_("run_command returned non-zero status while "
-				"recursing in the nested submodules of %s\n."),
-				displaypath);
-	}
+	if (info->recursive && !info->reverse_traversal)
+		recurse_into_nested_submodules(info, path, displaypath);
 
 cleanup:
 	free(displaypath);
@@ -440,15 +453,18 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 	struct foreach_cb info = FOREACH_CB_INIT;
 	struct pathspec pathspec = { 0 };
 	struct module_list list = MODULE_LIST_INIT;
+	int i, j;
 	struct option module_foreach_options[] = {
 		OPT__SUPER_PREFIX(&info.super_prefix),
 		OPT__QUIET(&info.quiet, N_("suppress output of entering each submodule command")),
 		OPT_BOOL(0, "recursive", &info.recursive,
 			 N_("recurse into nested submodules")),
+		OPT_BOOL(0, "reverse-traversal", &info.reverse_traversal,
+			 N_("visit submodules in the reverse of the usual order")),
 		OPT_END()
 	};
 	const char *const git_submodule_helper_usage[] = {
-		N_("git submodule foreach [--quiet] [--recursive] [--] <command>"),
+		N_("git submodule foreach [--quiet] [--recursive] [--reverse-traversal] [--] <command>"),
 		NULL
 	};
 	int ret = 1;
@@ -462,6 +478,10 @@ static int module_foreach(int argc, const char **argv, const char *prefix,
 	info.argc = argc;
 	info.argv = argv;
 	info.prefix = prefix;
+
+	if (info.reverse_traversal)
+		for (i = 0, j = list.nr - 1; i < j; i++, j--)
+			SWAP(list.entries[i], list.entries[j]);
 
 	for_each_listed_submodule(&list, runcommand_in_submodule_cb, &info);
 

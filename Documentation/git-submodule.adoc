@@ -18,7 +18,7 @@ git submodule [--quiet] update [<options>] [--] [<path>...]
 git submodule [--quiet] set-branch [<options>] [--] <path>
 git submodule [--quiet] set-url [--] <path> <newurl>
 git submodule [--quiet] summary [<options>] [--] [<path>...]
-git submodule [--quiet] foreach [--recursive] <command>
+git submodule [--quiet] foreach [--recursive] [--reverse-traversal] <command>
 git submodule [--quiet] sync [--recursive] [--] [<path>...]
 git submodule [--quiet] absorbgitdirs [--] [<path>...]
 
@@ -222,7 +222,7 @@ specifications.
 Using the `--submodule=log` option with linkgit:git-diff[1] will provide that
 information too.
 
-`foreach [--recursive] <command>`::
+`foreach [--recursive] [--reverse-traversal] <command>`::
 	Evaluate an arbitrary shell _<command>_ in each checked out submodule.
 	The command has access to the variables `$name`, `$sm_path`, `$displaypath`,
 	`$sha1` and `$toplevel`:
@@ -244,6 +244,12 @@ ignored by this command. Unless given `--quiet`, foreach prints the name
 of each submodule before evaluating the command.
 If `--recursive` is given, submodules are traversed recursively (i.e.
 the given shell command is evaluated in nested submodules as well).
+Submodules are visited in the order of their paths, and with `--recursive`
+each one is immediately followed by the submodules nested in it.
+If `--reverse-traversal` is given, this order is reversed. With
+`--recursive`, each submodule is thus visited after the submodules nested
+in it. Those are looked for before the command runs in the submodule, so
+nested submodules that the command itself checks out are not visited.
 A non-zero return from the command in any submodule causes
 the processing to terminate. This can be overridden by adding ++||:++
 to the end of the command.
@@ -253,6 +259,13 @@ checked out commit for each submodule:
 +
 --------------
 git submodule foreach 'echo $sm_path `git rev-parse HEAD`'
+--------------
++
+And this shows the path of each submodule, visiting the submodules nested
+in a submodule before the submodule itself:
++
+--------------
+git submodule --quiet foreach --recursive --reverse-traversal 'echo $displaypath'
 --------------
 
 `sync [--recursive] [--] [<path>...]`::
@@ -441,6 +454,14 @@ NOTE: See the NOTE above for the `--reference` option.
 	`update`, `status` and `sync` commands. The operation is performed not
 	only in the submodules of the current repo, but also
 	in any nested submodules inside those submodules (and so on).
+
+`--reverse-traversal`::
+	Visit the submodules in the reverse of the order they would otherwise
+	be visited in, which is described for `foreach` above. This option is
+	only valid for the `foreach` command.
+	With `--recursive`, nested submodules are visited before the
+	submodule they are nested in; without it, only the order of the
+	submodules directly in the superproject is reversed.
 
 `--depth=<depth>`::
 	Create a 'shallow' clone with a history truncated to the _<depth>_ revisions.
