@@ -345,4 +345,104 @@ test_expect_success '--fast needs an X..Y range' '
 	)
 '
 
+test_expect_success 'reversed endpoints are swapped and an end past EOF is clamped, as for git log -L' '
+	git init clamp &&
+	(
+		cd clamp &&
+		cf X f l1 l2 l3 l4 &&
+		cf A f l1 l2a l3 l4 &&
+		cf B f l1 l2b l3 l4b &&
+		depth_is 2 X..B 4,2:f &&
+		depth_is 2 X..B 1,99:f &&
+		depth_is 1 X..B 3,99:f &&
+		depth_is 0 X..B 1,1:f &&
+		! "$LINE_DEPTH" X..B 5,99:f >out 2>err &&
+		test_must_be_empty out
+	)
+'
+
+# Brute force: one "git log -L" per line, the largest count.
+#   oracle <range> <start> <end> <file>
+oracle () {
+	best=0 &&
+	i=$2 &&
+	while test "$i" -le "$3"
+	do
+		n=$(git log -L"$i,$i:$4" --format=%H --no-patch "$1" | wc -l) &&
+		n=$((n + 0)) &&
+		test "$n" -gt "$best" && best=$n
+		i=$((i + 1))
+	done &&
+	echo "$best"
+}
+
+test_expect_success 'agrees with the per-line brute force on a history of varied depths' '
+	git init varied &&
+	(
+		cd varied &&
+		for k in 0 1 2 3 4 5 6 7 8
+		do
+			awk -v k=$k "BEGIN { for (i = 1; i <= 24; i++) {
+				v = 0
+				for (j = 1; j <= k; j++) if (i % (j + 1) == 0) v++
+				print \"l\" i \"-\" v } }" >f &&
+			git add f &&
+			test_tick &&
+			git commit -q -m c$k &&
+			git tag c$k || return 1
+		done &&
+		for r in 1,24 5,9 10,10 3,20 7,8 12,24
+		do
+			s=${r%,*} e=${r#*,} &&
+			oracle c0..c8 $s $e f >expect &&
+			"$LINE_DEPTH" c0..c8 $r:f >actual &&
+			test_cmp expect actual &&
+			"$LINE_DEPTH" --fast c0..c8 $r:f >actual &&
+			test_cmp expect actual || return 1
+		done &&
+		oracle c0..c8 1 24 f >expect &&
+		"$LINE_DEPTH" c0..c8 max:f >actual &&
+		test_cmp expect actual &&
+		"$LINE_DEPTH" --fast c0..c8 max:f >actual &&
+		test_cmp expect actual &&
+		test "$(cat expect)" -gt 3
+	)
+'
+
+# Number of "git log" runs a command made, from GIT_TRACE.
+#   log_runs <command>...
+log_runs () {
+	rm -f trace &&
+	GIT_TRACE="$PWD/trace" "$@" >out 2>/dev/null &&
+	grep -c "built-in: git log" trace
+}
+
+test_expect_success 'a large uniform change needs few git log runs' '
+	git init few &&
+	(
+		cd few &&
+		cf X f first &&
+		{
+			echo first &&
+			test_seq 199
+		} >f &&
+		git add f &&
+		test_tick &&
+		git commit -q -m A &&
+		git tag A &&
+		depth_is 1 X..A max:f &&
+		runs=$(log_runs "$LINE_DEPTH" X..A max:f) &&
+		test "$runs" -le 40 &&
+		depth_is 1 --fast X..A max:f &&
+		runs=$(log_runs "$LINE_DEPTH" --fast X..A max:f) &&
+		test "$runs" -le 2 &&
+		# nothing in the range touches the file: one run settles it
+		depth_is 0 A..A max:f &&
+		cf B other o &&
+		depth_is 0 A..B max:f &&
+		runs=$(log_runs "$LINE_DEPTH" A..B max:f) &&
+		test "$runs" -le 1
+	)
+'
+
 test_done

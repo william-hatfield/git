@@ -22,6 +22,13 @@ number of commits touching the range as a whole.  Two lines edited by two
 different commits therefore give 1, not 2.  The commit that adds a line
 counts as a touch.
 
+To avoid one `git log -L` run per line, it runs `git log -L` over a whole range
+of lines first.  The commits reported for the range are an upper bound on the
+depth of every line in it, so a range that cannot beat the best depth seen so
+far is skipped, and any other range is split in halves until single lines
+remain.  A file in which every line was touched once needs only about twice
+log2(lines) runs, not one per line.
+
 What it does not cover
 ----------------------
 
@@ -39,8 +46,9 @@ What it does not cover
 - Binary files are rejected.  Symbolic links and submodules, and shallow
   repositories (history cut off at the shallow boundary undercounts), are not
   handled specially yet.
-- Only plain numbers are accepted for `<start>` and `<end>`, with
-  `<start>` <= `<end>`, and an end past the end of the file is an error.
+- Only plain numbers are accepted for `<start>` and `<end>`.  As with
+  `git log -L`, reversed endpoints are swapped and an end past the end of the
+  file is clamped; a start past the end of the file is an error.
 
 An empty revision set (for example `X..X`) prints 0 once the revisions, path
 and lines have been validated.  Any failure from Git, such as an unknown
@@ -54,12 +62,15 @@ the base that were merged into the branch.
 Speed: `--fast`
 ---------------
 
-By default every selected line costs one `git log -L` run.  With `--fast`
-only lines that `git diff -U0 X Y` reports as added or modified are
-measured, since any other line has depth 0.  This needs a plain `X..Y` range
-(not `X...Y` or a single revision) and is much cheaper: on a 1349-line file
-over 3000 commits, 92 lines changed and the answer (3) took about 7 seconds
-instead of 87.
+With `--fast` only the lines that `git diff -U0 X Y` reports as added or
+modified are searched, one range per changed hunk, since any other line has
+depth 0.  Every such line has depth at least 1, so a hunk whose commits number
+exactly 1 is settled by a single run.  This needs a plain `X..Y` range (not
+`X...Y` or a single revision).
+
+On a 1210-line file over 3000 commits (answer 2) the default takes about 9
+seconds and `--fast` about 4, against roughly 90 seconds for one `git log -L`
+run per line.
 
 The result differs from the default in one case: a line changed and then
 restored to its original text within the range is not in that diff, so

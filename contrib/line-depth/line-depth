@@ -1,13 +1,20 @@
 #!/bin/sh
 #
 # Print the largest number of distinct commits in <rev-range> that touch any
-# one line of <file> in the range <start>[,<end>], as "git log -L" tracks
-# each line back from the tip of the range.
+# one line of <file> in the range <start>[,<end>] (or in all of it, with
+# "max:<file>"), as "git log -L" tracks each line back from the tip of the
+# range.
 #
 # Line numbers refer to <file> at the tip of <rev-range>.  Only lines that
 # exist there are measured; deleted lines are not covered.
+#
+# All history tracking is done by "git log -L".  One run over a range of lines
+# reports the commits touching any of them, which is an upper bound on the
+# depth of each line in it, so a range that cannot beat the best depth found so
+# far is skipped and the others are split in halves until single lines remain.
 
-usage="usage: line-depth [--fast] <rev-range> <start>[,<end>]:<file>"
+usage="usage: line-depth [--fast] <rev-range> <start>[,<end>]:<file>
+   or: line-depth [--fast] <rev-range> max:<file>"
 
 die () {
 	echo "line-depth: $*" >&2
@@ -33,7 +40,8 @@ range=$1
 spec=$2
 lines=${spec%%:*}
 file=${spec#*:}
-test "$lines" != "$spec" && test -n "$file" || die "bad range '$spec'; $usage"
+test "$lines" != "$spec" && test -n "$file" || die "bad range '$spec'
+$usage"
 
 tip=${range#*..}
 tip=${tip#.}
@@ -57,19 +65,26 @@ then
 	esac
 fi
 
+# Also validates the revisions.  "git log -L" refuses a set that is empty
+# because X and Y name the same commit, although the answer is simply 0.
+count=$(git rev-list --count "$range") || exit
+
+# Git already knows how many lines the file has at the tip: --numstat against
+# the empty tree counts added lines (including an unterminated last one) and
+# reports binary content as "-".
+git cat-file -e "$tip:./$file" || die "no such file at $tip: $file"
+empty_tree=$(git hash-object -t tree /dev/null) || exit
+stat=$(git diff --numstat --no-renames "$empty_tree" "$tip" -- "$file") ||
+	exit
+tab=$(printf '\t')
+nlines=${stat%%"$tab"*}
+test "$nlines" != - || die "binary file, no lines to measure: $file"
+nlines=${nlines:-0}
+
 if test "$lines" = max
 then
-	# Every line of the file at the tip.  Git already knows how many that
-	# is: --numstat against the empty tree counts added lines (including an
-	# unterminated last one) and reports binary content as "-".
-	git cat-file -e "$tip:./$file" || die "no such file at $tip: $file"
-	empty_tree=$(git hash-object -t tree /dev/null) || exit
-	stat=$(git diff --numstat --no-renames "$empty_tree" "$tip" -- "$file") ||
-		exit
-	n=${stat%%	*}
-	test "$n" != - || die "binary file, no lines to measure: $file"
 	start=1
-	end=${n:-0}
+	end=$nlines
 else
 	case $lines in
 	*,*)
@@ -86,72 +101,91 @@ else
 		die "only numeric line numbers are supported: '$lines'"
 		;;
 	esac
-	test -n "$start" && test -n "$end" || die "bad range '$spec'; $usage"
+	test -n "$start" && test -n "$end" || die "bad range '$spec'
+$usage"
+	# As "git log -L" does: reversed endpoints are swapped and an end
+	# past the end of the file is clamped.
+	if test "$start" -gt "$end"
+	then
+		swap=$start
+		start=$end
+		end=$swap
+	fi
 	test "$start" -ge 1 || die "line numbers start at 1: '$lines'"
+	test "$start" -le "$nlines" || die "file $file has only $nlines lines"
+	test "$end" -le "$nlines" || end=$nlines
 fi
 
-# "git log -L" refuses a revision set that is empty because X and Y name the
-# same commit, so recognize the empty set here -- but only after checking that
-# the revisions, path and lines are valid at the tip of the range.
-count=$(git rev-list --count "$range") || exit
-if test "$count" = 0
+if test "$count" = 0 || test "$start" -gt "$end"
 then
-	if test "$start" -le "$end"
-	then
-		git log -L"$start,$end:$file" -n1 --format= --no-patch "$tip" \
-			>/dev/null || exit
-	fi
 	echo 0
 	exit 0
 fi
 
 max=0
 
-# Depth of line $1: the number of distinct commits "git log -L" reports.
-measure () {
+# Number of commits "git log -L" reports for any of the lines $1 to $2.
+union () {
 	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
-	commits=$(git log -L"$1,$1:$file" --format=%H --no-patch "$range") ||
-		exit
-	if test -n "$commits"
+	commits=$(git log -L"$1,$2:$file" --format=%H --no-patch "$range") ||
+		return
+	if test -z "$commits"
 	then
-		n=$(printf '%s\n' "$commits" | sort -u | wc -l)
-		n=$((n + 0))
-		test "$n" -gt "$max" && max=$n
+		echo 0
+	else
+		printf '%s\n' "$commits" | wc -l | tr -d ' '
 	fi
+}
+
+# Raise $max to the largest depth among lines $1 to $2, if it exceeds it.
+search () {
+	u=$(union "$1" "$2") || exit
+	test "$u" -gt "$max" || return 0
+	if test "$1" -eq "$2"
+	then
+		# A single line: its union is its depth.
+		max=$u
+		return 0
+	fi
+	if test -n "$fast" && test "$u" -eq 1
+	then
+		# Every line here was changed between X and Y, so each has a
+		# depth of at least 1, and at most the union.
+		max=1
+		return 0
+	fi
+	search "$1" $((($1 + $2) / 2)) &&
+	search $((($1 + $2) / 2 + 1)) "$2"
 }
 
 if test -n "$fast"
 then
 	# A line neither added nor modified between X and Y has depth 0, unless
 	# it was changed and then restored inside the range, which this misses.
-	if test "$start" -le "$end"
-	then
-		git log -L"$start,$end:$file" -n1 --format= --no-patch "$tip" \
-			>/dev/null || exit
-	fi
+	# Search each changed hunk of the file, as it is on the new side.
 	hunks=$(git diff -U0 --no-color --no-ext-diff --no-renames \
 		"$left" "$tip" -- "$file") || exit
-	candidates=$(printf '%s\n' "$hunks" | awk -v s="$start" -v e="$end" '
+	ranges=$(printf '%s\n' "$hunks" | awk -v s="$start" -v e="$end" '
 		/^@@ / {
 			plus = $3
 			sub(/^\+/, "", plus)
 			n = split(plus, p, ",")
 			count = (n > 1) ? p[2] : 1
-			for (i = p[1]; i < p[1] + count; i++)
-				if (i >= s && i <= e)
-					print i
+			lo = p[1]
+			hi = p[1] + count - 1
+			if (lo < s) lo = s
+			if (hi > e) hi = e
+			if (count > 0 && lo <= hi)
+				print lo, hi
 		}')
-	for i in $candidates
+	set -- $ranges
+	while test $# -ge 2
 	do
-		measure "$i"
+		search "$1" "$2"
+		shift 2
 	done
 else
-	i=$start
-	while test "$i" -le "$end"
-	do
-		measure "$i"
-		i=$((i + 1))
-	done
+	search "$start" "$end"
 fi
 
 echo "$max"
