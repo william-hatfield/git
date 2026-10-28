@@ -213,4 +213,172 @@ test_expect_success 'merge-effort conflicts equal the conflicts of a real merge'
 	done
 '
 
+# The old-side line numbers (in <X>) of the net diff <X> <Y> of "f".
+#   old_lines <X> <Y>
+old_lines () {
+	git diff -U0 --diff-algorithm=myers --no-indent-heuristic "$1" "$2" -- f |
+	awk '/^@@ / {
+		m = $2
+		sub(/^-/, "", m)
+		n = split(m, p, ",")
+		c = (n > 1) ? p[2] : 1
+		for (i = 0; i < c; i++)
+			print p[1] + i
+	}'
+}
+
+# touch-footprint worked out another way: for each old-side line of <X>, the
+# most recent commit that touched it is the first one "git log -L" lists.
+#   independent_footprint <X> <Y>
+independent_footprint () {
+	old_lines "$1" "$2" >old.lines &&
+	: >origins &&
+	while read -r line
+	do
+		git log -L$line,$line:f -n1 --no-patch --format="%H %ct" "$1" >>origins ||
+		return 1
+	done <old.lines &&
+	count=$(grep -c . origins || true) &&
+	if test "$count" = 0
+	then
+		printf "lines 0\ncommits 0\nauthors 0\noldest_days 0\nmedian_days 0\n"
+	else
+		base=$(git log -1 --format=%ct "$1") &&
+		commits=$(cut -d" " -f1 origins | sort -u | wc -l | tr -d " ") &&
+		authors=1 &&
+		awk -v base="$base" '{ print int((base - $2) / 86400) }' origins |
+			sort -n >ages &&
+		oldest=$(tail -n 1 ages) &&
+		median=$(sed -n "$(((count + 1) / 2))p" ages) &&
+		printf "lines %s\ncommits %s\nauthors %s\noldest_days %s\nmedian_days %s\n" \
+			"$count" "$commits" "$authors" "$oldest" "$median"
+	fi
+}
+
+test_expect_success 'touch-footprint equals an independent -L based count, with exact ages' '
+	for seed in 1 2 3 4 5 6
+	do
+		git init age$seed &&
+		(
+			cd age$seed &&
+			RANDOM_STEP=$((86400 * seed)) &&
+			random_history $seed 10 16 &&
+			independent_footprint c3 c10 >expect &&
+			"$BIN"/touch-footprint c3..c10 >actual &&
+			test_cmp expect actual &&
+			"$BIN"/touch-footprint --jobs=3 c3..c10 >actual &&
+			test_cmp expect actual &&
+			# the old lines of a wider range are older and more numerous
+			independent_footprint c0 c10 >expect &&
+			"$BIN"/touch-footprint c0..c10 >actual &&
+			test_cmp expect actual
+		) || return 1
+	done
+'
+
+# <file> of 20 long distinct lines, then a copy with one block moved.
+#   block_move <seed>
+block_move () {
+	awk 'BEGIN { for (i = 1; i <= 20; i++) printf "line number %d is long enough\n", i }' >f &&
+	git add f &&
+	test_tick &&
+	git commit -q -m X &&
+	git tag X &&
+	awk -v seed="$1" '
+		{ line[NR] = $0 }
+		END {
+			srand(seed)
+			k = 1 + int(rand() * 4)
+			s = 1 + int(rand() * (NR - k + 1))
+			m = NR - k
+			p = (s - 1 + 1 + int(rand() * m)) % (m + 1)
+			r = 0
+			for (i = 1; i <= NR; i++)
+				if (i < s || i >= s + k)
+					rest[++r] = line[i]
+			out = 0
+			for (i = 0; i <= m; i++) {
+				if (i == p)
+					for (j = 0; j < k; j++)
+						print line[s + j]
+				if (i < m)
+					print rest[i + 1]
+			}
+		}' f >g &&
+	mv g f &&
+	test_tick &&
+	git commit -q -a -m Y &&
+	git tag Y
+}
+
+test_expect_success 'moved-lines sees a moved block as entirely moved' '
+	for seed in 1 2 3 4 5 6 7 8
+	do
+		git init block$seed &&
+		(
+			cd block$seed &&
+			block_move $seed &&
+			"$BIN"/moved-lines X..Y >out &&
+			added=$(awk "\$1 == \"added\" { print \$2 }" out) &&
+			removed=$(awk "\$1 == \"removed\" { print \$2 }" out) &&
+			moved_added=$(awk "\$1 == \"moved_added\" { print \$2 }" out) &&
+			moved_removed=$(awk "\$1 == \"moved_removed\" { print \$2 }" out) &&
+			test "$added" -ge 1 &&
+			test "$added" = "$removed" &&
+			test "$added" = "$moved_added" &&
+			test "$added" = "$moved_removed"
+		) || return 1
+	done
+'
+
+test_expect_success 'change-spread invariants over files in nested directories' '
+	for seed in 1 2 3 4 5
+	do
+		git init multi$seed &&
+		(
+			cd multi$seed &&
+			mkdir -p a/y b &&
+			for file in a/x a/y/z b/w top
+			do
+				awk "BEGIN { for (i = 1; i <= 10; i++) print \"i\" i }" >$file &&
+				git add $file || return 1
+			done &&
+			test_tick &&
+			git commit -q -m c0 &&
+			git tag c0 &&
+			k=1 &&
+			while test $k -le 12
+			do
+				case $(((seed + k) % 4)) in
+				0) RANDOM_FILE=a/x ;;
+				1) RANDOM_FILE=a/y/z ;;
+				2) RANDOM_FILE=b/w ;;
+				*) RANDOM_FILE=top ;;
+				esac &&
+				random_edit $((seed * 100 + k)) c$k &&
+				k=$((k + 1)) || return 1
+			done &&
+			"$BIN"/change-spread c0..c12 >out &&
+			git diff --name-only c0 c12 >names &&
+			files=$(wc -l <names | tr -d " ") &&
+			dirs=$(awk "{ if (sub(/\\/[^\\/]*\$/, \"\")) print; else print \".\" }" names | sort -u | wc -l | tr -d " ") &&
+			subsystems=$(awk "{ i = index(\$0, \"/\"); print (i ? substr(\$0, 1, i - 1) : \".\") }" names | sort -u | wc -l | tr -d " ") &&
+			cat >expect <<-EOF &&
+			commits 12
+			merges 0
+			authors 1
+			files $files
+			dirs $dirs
+			subsystems $subsystems
+			EOF
+			grep -E "^(commits|merges|authors|files|dirs|subsystems) " out >actual &&
+			test_cmp expect actual &&
+			test "$dirs" -le "$files" &&
+			test "$subsystems" -le "$dirs" &&
+			entropy=$(awk "\$1 == \"entropy\" { print \$2 }" out) &&
+			awk -v h="$entropy" -v f="$files" "BEGIN { exit !(h >= 0 && h <= log(f) / log(2) + 0.005) }"
+		) || return 1
+	done
+'
+
 test_done

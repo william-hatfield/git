@@ -35,12 +35,14 @@ expect_is () {
 	test_cmp expect actual
 }
 
-# One random edit of the file "f", committed and tagged <tag>: it modifies,
-# inserts or deletes one to three lines.  Every new line has text that never
-# occurred before (it contains the tag, which must be new), so a line's
-# identity is never ambiguous and nothing is ever restored.
+# One random edit of the file $RANDOM_FILE (default "f"), committed and tagged
+# <tag>: it modifies, inserts or deletes one to three lines.  Every new line
+# has text that never occurred before (it contains the tag, which must be new),
+# so a line's identity is never ambiguous and nothing is ever restored.
+# $RANDOM_STEP seconds are added to the commit time first, for tests of ages.
 #   random_edit <seed> <tag>
 random_edit () {
+	target=${RANDOM_FILE:-f} &&
 	awk -v seed="$1" -v uid="$2" '
 		BEGIN { srand(seed) }
 		{ line[NR] = $0 }
@@ -65,8 +67,9 @@ random_edit () {
 			}
 			for (i = 1; i <= n; i++)
 				print line[i]
-		}' f >g &&
-	mv g f &&
+		}' "$target" >g &&
+	mv g "$target" &&
+	test_tick=$((${test_tick:-1112911993} + ${RANDOM_STEP:-0})) &&
 	test_tick &&
 	git commit -q -a -m "$2" &&
 	git tag "$2"
