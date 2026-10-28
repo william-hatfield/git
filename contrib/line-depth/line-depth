@@ -13,8 +13,9 @@
 # depth of each line in it, so a range that cannot beat the best depth found so
 # far is skipped and the others are split in halves until single lines remain.
 
-usage="usage: line-depth [--fast] <rev-range> <start>[,<end>]:<file>
-   or: line-depth [--fast] <rev-range> max:<file>"
+usage="usage: line-depth [--fast] [--first-parent] [--ignore-revs-file=<file>]
+                  <rev-range> <start>[,<end>]:<file>
+   or: line-depth [options] <rev-range> max:<file>"
 
 die () {
 	echo "line-depth: $*" >&2
@@ -22,11 +23,30 @@ die () {
 }
 
 fast=
-if test "$1" = --fast
-then
-	fast=1
+first_parent=
+ignore_file=
+while test $# -gt 0
+do
+	case $1 in
+	--fast)
+		fast=1
+		;;
+	--first-parent)
+		first_parent=--first-parent
+		;;
+	--ignore-revs-file=*)
+		ignore_file=${1#*=}
+		;;
+	-*)
+		echo "$usage" >&2
+		exit 129
+		;;
+	*)
+		break
+		;;
+	esac
 	shift
-fi
+done
 
 test $# = 2 || {
 	echo "$usage" >&2
@@ -67,7 +87,21 @@ fi
 
 # Also validates the revisions.  "git log -L" refuses a set that is empty
 # because X and Y name the same commit, although the answer is simply 0.
-count=$(git rev-list --count "$range") || exit
+count=$(git rev-list --count $first_parent "$range") || exit
+
+# Commits to leave out of every count, one full object name per line, with
+# "#" comments and blank lines allowed as in blame's ignore-revs files.
+ignored=
+if test -n "$ignore_file"
+then
+	ignored=$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' \
+		"$ignore_file") || die "cannot read '$ignore_file'"
+	if printf '%s\n' "$ignored" |
+		grep -v -E '^([0-9a-f]{40}|[0-9a-f]{64})?$' >/dev/null
+	then
+		die "'$ignore_file' must list full object names"
+	fi
+fi
 
 # Git already knows how many lines the file has at the tip: --numstat against
 # the empty tree counts added lines (including an unterminated last one) and
@@ -127,8 +161,18 @@ max=0
 # Number of commits "git log -L" reports for any of the lines $1 to $2.
 union () {
 	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
-	commits=$(git log -L"$1,$2:$file" --format=%H --no-patch "$range") ||
-		return
+	commits=$(git log -L"$1,$2:$file" --format=%H --no-patch \
+		$first_parent "$range") || return
+	if test -n "$ignored" && test -n "$commits"
+	then
+		commits=$(printf '%s\n' "$commits" | IGNORED=$ignored awk '
+			BEGIN {
+				n = split(ENVIRON["IGNORED"], list, "\n")
+				for (i = 1; i <= n; i++)
+					skip[list[i]] = 1
+			}
+			!($0 in skip)')
+	fi
 	if test -z "$commits"
 	then
 		echo 0
@@ -147,10 +191,11 @@ search () {
 		max=$u
 		return 0
 	fi
-	if test -n "$fast" && test "$u" -eq 1
+	if test -n "$fast" && test -z "$ignored" && test "$u" -eq 1
 	then
 		# Every line here was changed between X and Y, so each has a
-		# depth of at least 1, and at most the union.
+		# depth of at least 1 (unless commits are being ignored), and
+		# at most the union.
 		max=1
 		return 0
 	fi

@@ -472,4 +472,69 @@ test_expect_success '--fast picks the lines -L picks, whatever the diff configur
 	)
 '
 
+test_expect_success '--first-parent counts the merge and follows the mainline only' '
+	git init firstparent &&
+	(
+		cd firstparent &&
+		cf X f a &&
+		cf P f b &&
+		git switch -q -c side X &&
+		cf Q f c &&
+		blob=$(echo c | git hash-object -w --stdin) &&
+		tree=$(printf "100644 blob %s\tf\n" "$blob" | git mktree) &&
+		test_tick &&
+		M=$(git commit-tree "$tree" -p P -p Q -m M) &&
+		git tag M "$M" &&
+		# M matches Q, so -L follows Q alone and omits M and P
+		depth_is 1 X..M 1,1:f &&
+		# on the first-parent chain M differs from P, so M and P count
+		depth_is 2 --first-parent X..M 1,1:f &&
+		depth_is 2 --first-parent X..M max:f &&
+		depth_is 2 --fast --first-parent X..M max:f &&
+		depth_is 0 --first-parent M..M max:f
+	)
+'
+
+test_expect_success '--ignore-revs-file leaves listed commits out of the count' '
+	git init ignore &&
+	(
+		cd ignore &&
+		cf X f l1 s1 l2 &&
+		cf A f l1 s1 l2a &&
+		cf F f l1 s1 l2f &&
+		cf B f l1 s1 l2b &&
+		depth_is 3 X..B 3,3:f &&
+		{
+			echo "# a reformat" &&
+			echo &&
+			echo "$(git rev-parse F) # trailing comment"
+		} >ignore-revs &&
+		depth_is 2 --ignore-revs-file=ignore-revs X..B 3,3:f &&
+		depth_is 2 --ignore-revs-file=ignore-revs X..B max:f &&
+		depth_is 2 --first-parent --ignore-revs-file=ignore-revs X..B max:f &&
+		# a net-changed line can end up with depth 0, so --fast agrees
+		git rev-parse A F B >all-revs &&
+		depth_is 0 --fast --ignore-revs-file=all-revs X..B max:f &&
+		depth_is 0 --ignore-revs-file=all-revs X..B max:f
+	)
+'
+
+test_expect_success '--ignore-revs-file rejects an unreadable or malformed file' '
+	git init badignore &&
+	(
+		cd badignore &&
+		cf X f a &&
+		cf P f b &&
+		! "$LINE_DEPTH" --ignore-revs-file=missing X..P max:f >out 2>err &&
+		test_must_be_empty out &&
+		test_file_not_empty err &&
+		git rev-parse --short P >short &&
+		! "$LINE_DEPTH" --ignore-revs-file=short X..P max:f >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "full object" err &&
+		! "$LINE_DEPTH" --no-such-option X..P max:f >out 2>err &&
+		test_must_be_empty out
+	)
+'
+
 test_done

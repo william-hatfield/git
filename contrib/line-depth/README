@@ -5,12 +5,19 @@ Print the *commit depth* of lines of a file: how many distinct commits in a
 revision range touched a line, taking the largest value over the lines
 selected.
 
-    line-depth [--fast] <rev-range> <start>[,<end>]:<file>
-    line-depth [--fast] <rev-range> max:<file>
+    line-depth [options] <rev-range> <start>[,<end>]:<file>
+    line-depth [options] <rev-range> max:<file>
 
 For example, `line-depth origin/main..HEAD 10,40:foo.c` prints the highest
 depth among lines 10 to 40 of `foo.c` as of `HEAD`, and `max:foo.c` covers
 every line of the file.  The only output on success is one integer.
+
+Options: `--fast` (below), `--first-parent` (count only the first-parent
+chain, as for `git log --first-parent`: a merge that differs from its first
+parent then counts, and the side branch does not), and
+`--ignore-revs-file=<file>` (leave the listed commits out of every count; one
+full object name per line, `#` comments and blank lines allowed, like blame's
+ignore-revs files, for mass reformatting commits).
 
 How it works
 ------------
@@ -104,10 +111,62 @@ Renames are followed (a pure rename has no footprint), `blame.ignoreRevsFile`
 and similar user configuration apply, and paths that need quoting are not
 supported.
 
+Other measurements
+------------------
+
+Each of these is a separate script with the same conventions: it takes an
+`X..Y` range (the tip of the base branch on the left), optional paths, and
+prints `key value` lines, with no policy attached.  They are built from
+existing Git commands.
+
+`churn-ratio <X..Y> [<path>...]`::
+	`gross` lines changed by the commits of the range (`git log --numstat`),
+	`net` lines changed by one diff of the two ends, and `rework`, the
+	surplus.
+
+`change-spread <X..Y> [<path>...]`::
+	`commits`, `merges`, `authors`, `files`, `dirs`, `subsystems`,
+	`functions` (from hunk headers) and the `entropy` in bits of the lines
+	changed per file.
+
+`merge-effort <rev1> <rev2>`::
+	What merging two commits would take: `merge_bases`, `left_only`,
+	`right_only`, `files_left`, `files_right`, `files_both` and the
+	`conflicts` found by `git merge-tree --write-tree` (which writes only
+	objects).
+
+`merge-resolution <merge-commit>`::
+	The hand edits in an existing merge: `parents`, and the `files`,
+	`added` and `deleted` lines that differ from an automatic re-merge
+	(`git diff-tree --remerge-diff`).  Conflict markers count as deleted
+	lines.
+
+`pre-range-depth <W> <X..Y> [<path>...]`::
+	How contested the lines the range changes already were: `line-depth`
+	over `W..X`, the window before the range, for the old-side lines of
+	each hunk.  Reports `ranges` and the largest `depth`.
+
+`forward-survival <X..Y> [<path>...]`::
+	`git blame --reverse` from `X`: `files`, `lines`, the number
+	`removed` by `Y`, and the distinct revisions (`removal_points`) at which
+	the last of them were still present.
+
+`moved-lines <X..Y> [<path>...]`::
+	`added` and `removed` lines, and how many are `moved_added` and
+	`moved_removed` according to `git diff --color-moved=zebra` (blocks of at
+	least 20 alphanumeric characters).
+
+Function-level depth needs no script: `git log -L :<funcname>:<file> --format=%H
+--no-patch X..Y | wc -l` counts the commits that touched a function (it fails
+for `X..X`, and counts commits that touch any line of the function, not the
+deepest line).
+
 Tests
 -----
 
     make -C t
 
 The tests in `t/t9420-line-depth-characterize.sh` run `git log -L` alone and
-record the behavior this tool relies on.
+record the behavior `line-depth` relies on.  Run them against the Git you use:
+`-L`'s idea of a touch has changed over time and results depend on the
+version.  They were last run with Git built from upstream master `37b3475fb5`.
