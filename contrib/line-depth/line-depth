@@ -165,13 +165,17 @@ union () {
 		$first_parent "$range") || return
 	if test -n "$ignored" && test -n "$commits"
 	then
-		commits=$(printf '%s\n' "$commits" | IGNORED=$ignored awk '
-			BEGIN {
-				n = split(ENVIRON["IGNORED"], list, "\n")
-				for (i = 1; i <= n; i++)
-					skip[list[i]] = 1
+		# awk reads the file itself: a long list does not fit in the
+		# environment, and its status must not be lost.
+		commits=$(printf '%s\n' "$commits" | awk '
+			FILENAME == ARGV[1] {
+				sub(/#.*/, "")
+				gsub(/[ \t]+/, "")
+				if ($0 != "")
+					skip[$0] = 1
+				next
 			}
-			!($0 in skip)')
+			!($0 in skip)' "$ignore_file" -) || return
 	fi
 	if test -z "$commits"
 	then

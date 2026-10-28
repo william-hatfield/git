@@ -51,8 +51,10 @@ git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$lef
 git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
 
 # Assigning from $(...) keeps git's exit status, unlike a pipeline.
-gross_stat=$(git log --numstat --format= "$range" -- "$@") || exit
-net_stat=$(git diff --numstat "$left" "$tip" -- "$@") || exit
+gross_stat=$(git log --numstat --ignore-submodules=all --format= "$range" \
+	-- "$@") || exit
+net_stat=$(git diff --numstat --ignore-submodules=all "$left" "$tip" \
+	-- "$@") || exit
 
 # Lines added plus deleted; binary files report "-" and are skipped.
 sum () {

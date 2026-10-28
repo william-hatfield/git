@@ -177,4 +177,21 @@ test_expect_success 'bad input is an error with nothing on stdout' '
 	)
 '
 
+test_expect_success 'a changed submodule entry is not blamed' '
+	git init submodule &&
+	(
+		cd submodule &&
+		cfa R alice 100 f l1 l2 &&
+		git update-index --add --cacheinfo 160000,$(git rev-parse R),sm &&
+		GIT_COMMITTER_DATE="$(((120 + 10000) * 86400)) +0000" git commit -q -m X &&
+		git tag X &&
+		git update-index --cacheinfo 160000,$(git rev-parse X),sm &&
+		printf "%s\n" l1y l2 >f &&
+		git add f &&
+		GIT_COMMITTER_DATE="$(((130 + 10000) * 86400)) +0000" git commit -q -m P &&
+		git tag P &&
+		footprint_is 1 1 1 20 20 X..P
+	)
+'
+
 test_done

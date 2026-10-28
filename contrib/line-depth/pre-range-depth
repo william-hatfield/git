@@ -56,7 +56,7 @@ git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'
 depth_tool=$(cd "$(dirname "$0")" && pwd)/line-depth
 
 changes=$(git -c core.quotePath=false diff --name-status -M \
-	--diff-filter=MDR "$left" "$tip" -- "$@") || exit
+	--ignore-submodules=all --diff-filter=MDR "$left" "$tip" -- "$@") || exit
 case $changes in
 *\"*)
 	die "paths needing quotes are not supported"

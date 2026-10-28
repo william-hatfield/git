@@ -55,7 +55,8 @@ git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$lef
 git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
 
 # Assigning from $(...) keeps git's exit status, unlike a pipeline.
-stat=$(git diff --numstat "$left" "$tip" -- "$@") || exit
+stat=$(git diff --numstat --ignore-submodules=all "$left" "$tip" -- "$@") ||
+	exit
 
 # Ordinary lines are green and red; moved ones blue and cyan, whatever the
 # user's configuration says.  Use the same diff as "git log -L".
@@ -66,7 +67,8 @@ colored=$(git -c color.diff.new=green -c color.diff.old=red \
 	-c color.diff.newMovedDimmed=blue -c color.diff.oldMovedDimmed=cyan \
 	-c color.diff.newMovedAlternativeDimmed=blue \
 	-c color.diff.oldMovedAlternativeDimmed=cyan \
-	diff -U0 --no-ext-diff --color=always --color-moved=zebra \
+	diff -U0 --no-ext-diff --ignore-submodules=all --color=always \
+	--color-moved=zebra \
 	--diff-algorithm=myers --no-indent-heuristic \
 	"$left" "$tip" -- "$@") || exit
 

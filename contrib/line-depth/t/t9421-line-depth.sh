@@ -537,4 +537,20 @@ test_expect_success '--ignore-revs-file rejects an unreadable or malformed file'
 	)
 '
 
+test_expect_success '--ignore-revs-file copes with a very long list' '
+	git init longignore &&
+	(
+		cd longignore &&
+		cf X f l1 s1 l2 &&
+		cf A f l1 s1 l2a &&
+		cf F f l1 s1 l2f &&
+		awk "BEGIN { for (i = 1; i <= 30000; i++) printf \"%040x\\n\", i }" \
+			>ignore-revs &&
+		git rev-parse F >>ignore-revs &&
+		depth_is 1 --ignore-revs-file=ignore-revs X..F 3,3:f &&
+		depth_is 1 --ignore-revs-file=ignore-revs X..F max:f &&
+		depth_is 2 X..F max:f
+	)
+'
+
 test_done
