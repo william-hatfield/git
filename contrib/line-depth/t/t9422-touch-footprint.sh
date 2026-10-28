@@ -213,4 +213,41 @@ test_expect_success 'works from a subdirectory, with paths relative to it' '
 	)
 '
 
+test_expect_success '--jobs gives the same result and leaves no temporary files' '
+	git init jobs &&
+	(
+		cd jobs &&
+		mkdir tmp &&
+		i=1 &&
+		while test $i -le 6
+		do
+			case $((i % 2)) in
+			1) who=alice ;;
+			*) who=bob ;;
+			esac &&
+			cfa R$i $who $((99 + i)) f$i a b &&
+			i=$((i + 1)) || return 1
+		done &&
+		cfa X carol 110 other o &&
+		i=1 &&
+		while test $i -le 6
+		do
+			printf "%s\n" a2 b >f$i &&
+			git add f$i &&
+			i=$((i + 1)) || return 1
+		done &&
+		GIT_COMMITTER_DATE="$(((120 + 10000) * 86400)) +0000" git commit -q -m P &&
+		git tag P &&
+		footprint_is 6 6 2 10 7 X..P &&
+		footprint_is 6 6 2 10 7 --jobs=4 X..P &&
+		TMPDIR="$PWD/tmp" "$FOOTPRINT" --jobs=3 X..P >actual &&
+		test_cmp expect actual &&
+		test_dir_is_empty tmp &&
+		! "$FOOTPRINT" --jobs=0 X..P >out 2>err &&
+		test_must_be_empty out &&
+		! "$FOOTPRINT" --jobs=many X..P >out 2>err &&
+		test_must_be_empty out
+	)
+'
+
 test_done

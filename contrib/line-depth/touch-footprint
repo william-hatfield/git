@@ -17,12 +17,36 @@
 # then restored inside the range is not in the net diff.  This complements
 # line-depth, which covers the lines that survive in Y.
 
-usage="usage: touch-footprint <X..Y> [<path>...]"
+usage="usage: touch-footprint [--jobs=<n>] <X..Y> [<path>...]"
 
 die () {
 	echo "touch-footprint: $*" >&2
 	exit 1
 }
+
+jobs=1
+while test $# -gt 0
+do
+	case $1 in
+	--jobs=*)
+		jobs=${1#*=}
+		;;
+	-*)
+		echo "$usage" >&2
+		exit 129
+		;;
+	*)
+		break
+		;;
+	esac
+	shift
+done
+
+case $jobs in
+'' | *[!0-9]* | 0)
+	die "--jobs needs a positive number"
+	;;
+esac
 
 test $# -ge 1 || {
 	echo "$usage" >&2
@@ -77,7 +101,15 @@ case $changes in
 esac
 
 tab=$(printf '\t')
-records=
+
+# The blame runs are queued in a temporary directory, one numbered set of
+# files per file with old-side lines, and run through xargs, which runs
+# --jobs of them at a time.  Blame dominates the time: about 0.15 seconds per
+# file here, 36 seconds for 244 files serially and 4 with 14 jobs.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/touch-footprint.XXXXXX") || exit
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+n=0
 
 while IFS=$tab read -r status old new
 do
@@ -107,22 +139,37 @@ do
 		}')
 	test -n "$ranges" || continue
 
-	# One line of output per blamed line: commit, author, commit time.
-	blamed=$(git blame --line-porcelain $ranges "$left" -- "$old") || exit
-	records="$records$(printf '%s\n' "$blamed" | awk '
-		substr($0, 1, 1) == "\t" {
-			printf "%s\t%s\t%s\n", sha, mail, ct
-			next
-		}
-		NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
-			sha = $1
-		}
-		$1 == "author-mail" { mail = $2 }
-		$1 == "committer-time" { ct = $2 }')
-"
+	n=$((n + 1))
+	printf '%s' "$old" >"$tmp/$n.path"
+	printf '%s\n' "$ranges" >"$tmp/$n.ranges"
 done <<EOF
 $changes
 EOF
+
+if test "$n" -gt 0
+then
+	FP_DIR=$tmp
+	FP_LEFT=$left
+	export FP_DIR FP_LEFT
+	awk -v n="$n" 'BEGIN { for (i = 1; i <= n; i++) print i }' |
+	xargs -n 1 -P "$jobs" sh -c '
+		git blame --line-porcelain $(cat "$FP_DIR/$0.ranges") \
+			"$FP_LEFT" -- "$(cat "$FP_DIR/$0.path")" \
+			>"$FP_DIR/$0.out"' ||
+	die "blame failed"
+fi
+
+# One line per blamed line: commit, author, commit time.
+records=$(find "$tmp" -name '*.out' -exec cat {} + | awk '
+	substr($0, 1, 1) == "\t" {
+		printf "%s\t%s\t%s\n", sha, mail, ct
+		next
+	}
+	NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
+		sha = $1
+	}
+	$1 == "author-mail" { mail = $2 }
+	$1 == "committer-time" { ct = $2 }')
 
 lines=0
 commits=0
