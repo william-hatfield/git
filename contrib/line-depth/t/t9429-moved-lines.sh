@@ -99,6 +99,7 @@ test_expect_success 'user colour configuration does not matter, paths limit the 
 		git config color.diff.newMoved cyan &&
 		git config color.diff.oldMoved green &&
 		git config diff.colorMoved plain &&
+		git config diff.external false &&
 		expect_is "$MOVED" X..P <<-\EOF &&
 		added 3
 		removed 2

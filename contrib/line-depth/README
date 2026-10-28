@@ -16,8 +16,9 @@ Options: `--fast` (below), `--first-parent` (count only the first-parent
 chain, as for `git log --first-parent`: a merge that differs from its first
 parent then counts, and the side branch does not), and
 `--ignore-revs-file=<file>` (leave the listed commits out of every count; one
-full object name per line, `#` comments and blank lines allowed, like blame's
-ignore-revs files, for mass reformatting commits).
+full commit name per line, `#` comments and blank lines allowed, like blame's
+ignore-revs files, for mass reformatting commits; annotated tag names are not
+peeled, as blame does).
 
 How it works
 ------------
@@ -139,7 +140,9 @@ existing Git commands.
 	The hand edits in an existing merge: `parents`, and the `files`,
 	`added` and `deleted` lines that differ from an automatic re-merge
 	(`git diff-tree --remerge-diff`).  Conflict markers count as deleted
-	lines.
+	lines.  Git defines remerge only for two-parent merges and says its
+	output may change, so an octopus merge is refused.  Needs Git 2.46.1 or
+	later: before that `git diff-tree --remerge-diff` crashed.
 
 `pre-range-depth <W> <X..Y> [<path>...]`::
 	How contested the lines the range changes already were: `line-depth`
@@ -149,12 +152,17 @@ existing Git commands.
 `forward-survival <X..Y> [<path>...]`::
 	`git blame --reverse` from `X`: `files`, `lines`, the number
 	`removed` by `Y`, and the distinct revisions (`removal_points`) at which
-	the last of them were still present.
+	the last of them were still present.  Reverse blame names the last
+	revision that still held a line, not the commit that removed it, and
+	after merges it can point at the commit where branches diverged, so
+	`removal_points` counts places in history, not removal events.
 
 `moved-lines <X..Y> [<path>...]`::
 	`added` and `removed` lines, and how many are `moved_added` and
 	`moved_removed` according to `git diff --color-moved=zebra` (blocks of at
-	least 20 alphanumeric characters).
+	least 20 alphanumeric characters).  Needs Git 2.46.0 or later: before
+	that `--color-moved` was silently ignored whenever `diff.external` was
+	set, even with `--no-ext-diff`.
 
 Function-level depth needs no script: `git log -L :<funcname>:<file> --format=%H
 --no-patch X..Y | wc -l` counts the commits that touched a function (it fails

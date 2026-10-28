@@ -89,6 +89,25 @@ test_expect_success 'a change made while merging, without any conflict' '
 	)
 '
 
+test_expect_success 'an octopus merge is refused: remerge-diff is for two parents' '
+	git init octopus &&
+	(
+		cd octopus &&
+		cf X f a &&
+		git switch -q -c b1 &&
+		cf B1 g b &&
+		git switch -q -c b2 X &&
+		cf B2 h c &&
+		tree=$(git rev-parse "B1^{tree}") &&
+		test_tick &&
+		O=$(git commit-tree "$tree" -p X -p B1 -p B2 -m O) &&
+		git tag O "$O" &&
+		! "$RESOLUTION" O >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "two-parent" err
+	)
+'
+
 test_expect_success 'bad input is an error with nothing on stdout' '
 	git init errors &&
 	(

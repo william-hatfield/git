@@ -35,6 +35,10 @@ git rev-parse --verify -q "$commit^{commit}" >/dev/null ||
 	die "bad revision '$commit'"
 git rev-parse --verify -q "$commit^2" >/dev/null ||
 	die "not a merge commit: '$commit'"
+if git rev-parse --verify -q "$commit^3" >/dev/null
+then
+	die "'$commit' is an octopus merge; remerge-diff is defined for two-parent merges"
+fi
 
 parents=$(git rev-list --parents -n 1 "$commit") || exit
 parents=$(printf '%s\n' "$parents" | wc -w | tr -d ' ')
