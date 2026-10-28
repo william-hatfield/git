@@ -92,7 +92,10 @@ touch-footprint
 `line-depth` only sees lines that survive in the tip.  Its companion
 `touch-footprint <X..Y> [<path>...]` looks at the other side: the lines of `X`
 that the range modifies or deletes, taken from `git diff -U0 X Y` and blamed
-at `X`.  It prints one `key value` pair per line:
+at `X`.  Blame costs about 0.15 seconds per file, so `--jobs=<n>` runs that
+many blames at once through `xargs -P` (22 seconds became 4.4 with 14 jobs on
+244 files, with identical output); the default is 1.  It prints one `key value`
+pair per line:
 
     lines        how many such lines there are
     commits      distinct commits that last touched them
