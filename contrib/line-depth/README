@@ -123,6 +123,18 @@ Each of these is a separate script with the same conventions: it takes an
 prints `key value` lines, with no policy attached.  They are built from
 existing Git commands.
 
+Where a script compares the two ends (`churn-ratio`, `change-spread`,
+`moved-lines`, `touch-footprint`, `forward-survival`, `pre-range-depth` and
+`line-depth --fast`) it diffs the *trees* of `X` and `Y`, while the commit
+counts use the commits of `X..Y`.  For a branch that has not been rebased onto
+`X` the tree diff also contains what the mainline did since the fork, so pass
+the merge base as `X` for those: `$(git merge-base base head)..head`.  If the
+branch merged another topic that the base also merged there can be several
+merge bases (`git merge-base --all`), and no single one is right; in a study of
+60 topics here that happened for the first one examined, where the tree diff
+said 4770 lines changed and the merge-base diff 1465, for 6 commits that changed
+257.  The `X...Y` spelling is rejected for this reason rather than guessed.
+
 `churn-ratio <X..Y> [<path>...]`::
 	`gross` lines changed by the commits of the range (`git log --numstat`),
 	`net` lines changed by one diff of the two ends, and `rework`, the

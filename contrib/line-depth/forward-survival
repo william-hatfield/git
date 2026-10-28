@@ -59,7 +59,7 @@ shift
 
 case $range in
 *...*)
-	die "needs an X..Y range, not '$range'"
+	die "needs an X..Y range, not '$range' (use the merge base as X)"
 	;;
 *..*)
 	left=${range%%..*}
@@ -68,7 +68,7 @@ case $range in
 	tip=${tip:-HEAD}
 	;;
 *)
-	die "needs an X..Y range, not '$range'"
+	die "needs an X..Y range, not '$range' (use the merge base as X)"
 	;;
 esac
 
