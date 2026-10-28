@@ -7,17 +7,27 @@
 # Line numbers refer to <file> at the tip of <rev-range>.  Only lines that
 # exist there are measured; deleted lines are not covered.
 
-usage="usage: line-depth <rev-range> <start>[,<end>]:<file>"
+usage="usage: line-depth [--fast] <rev-range> <start>[,<end>]:<file>"
 
 die () {
 	echo "line-depth: $*" >&2
 	exit 1
 }
 
+fast=
+if test "$1" = --fast
+then
+	fast=1
+	shift
+fi
+
 test $# = 2 || {
 	echo "$usage" >&2
 	exit 129
 }
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
 
 range=$1
 spec=$2
@@ -29,13 +39,29 @@ tip=${range#*..}
 tip=${tip#.}
 tip=${tip:-HEAD}
 
+if test -n "$fast"
+then
+	# Candidate lines come from the diff between the two ends, so the range
+	# has to be a plain X..Y.
+	case $range in
+	*...*)
+		die "--fast needs an X..Y range, not '$range'"
+		;;
+	*..*)
+		left=${range%%..*}
+		left=${left:-HEAD}
+		;;
+	*)
+		die "--fast needs an X..Y range, not '$range'"
+		;;
+	esac
+fi
+
 if test "$lines" = max
 then
 	# Every line of the file at the tip.  Git already knows how many that
 	# is: --numstat against the empty tree counts added lines (including an
 	# unterminated last one) and reports binary content as "-".
-	GIT_LITERAL_PATHSPECS=1
-	export GIT_LITERAL_PATHSPECS
 	git cat-file -e "$tip:./$file" || die "no such file at $tip: $file"
 	empty_tree=$(git hash-object -t tree /dev/null) || exit
 	stat=$(git diff --numstat --no-renames "$empty_tree" "$tip" -- "$file") ||
@@ -80,11 +106,11 @@ then
 fi
 
 max=0
-i=$start
-while test "$i" -le "$end"
-do
+
+# Depth of line $1: the number of distinct commits "git log -L" reports.
+measure () {
 	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
-	commits=$(git log -L"$i,$i:$file" --format=%H --no-patch "$range") ||
+	commits=$(git log -L"$1,$1:$file" --format=%H --no-patch "$range") ||
 		exit
 	if test -n "$commits"
 	then
@@ -92,7 +118,40 @@ do
 		n=$((n + 0))
 		test "$n" -gt "$max" && max=$n
 	fi
-	i=$((i + 1))
-done
+}
+
+if test -n "$fast"
+then
+	# A line neither added nor modified between X and Y has depth 0, unless
+	# it was changed and then restored inside the range, which this misses.
+	if test "$start" -le "$end"
+	then
+		git log -L"$start,$end:$file" -n1 --format= --no-patch "$tip" \
+			>/dev/null || exit
+	fi
+	hunks=$(git diff -U0 --no-color --no-ext-diff --no-renames \
+		"$left" "$tip" -- "$file") || exit
+	candidates=$(printf '%s\n' "$hunks" | awk -v s="$start" -v e="$end" '
+		/^@@ / {
+			plus = $3
+			sub(/^\+/, "", plus)
+			n = split(plus, p, ",")
+			count = (n > 1) ? p[2] : 1
+			for (i = p[1]; i < p[1] + count; i++)
+				if (i >= s && i <= e)
+					print i
+		}')
+	for i in $candidates
+	do
+		measure "$i"
+	done
+else
+	i=$start
+	while test "$i" -le "$end"
+	do
+		measure "$i"
+		i=$((i + 1))
+	done
+fi
 
 echo "$max"

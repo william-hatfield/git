@@ -268,4 +268,81 @@ test_expect_success 'rename following inherits the diff.renames configuration' '
 	)
 '
 
+test_expect_success '--fast measures only lines added or modified between X and Y' '
+	git init fast &&
+	(
+		cd fast &&
+		cf X f left sep right &&
+		cf A f left-a sep right &&
+		cf B f left-a sep right-b &&
+		cf C f left-c sep right-c &&
+		depth_is 2 X..C max:f &&
+		depth_is 2 --fast X..C max:f &&
+		depth_is 2 --fast X..C 1,3:f &&
+		depth_is 0 --fast X..C 2,2:f &&
+		depth_is 1 --fast X..B 3,3:f &&
+		depth_is 0 --fast X..X max:f
+	)
+'
+
+test_expect_success '--fast skips a line changed and then restored' '
+	git init fastrevert &&
+	(
+		cd fastrevert &&
+		cf X f old x0 &&
+		cf C f new x0 &&
+		cf R f old x0 &&
+		cf E f old x1 &&
+		depth_is 2 X..E 1,1:f &&
+		depth_is 2 X..E max:f &&
+		depth_is 0 --fast X..E 1,1:f &&
+		depth_is 1 --fast X..E max:f
+	)
+'
+
+test_expect_success '--fast handles deletions and files created in the range' '
+	git init fastmore &&
+	(
+		cd fastmore &&
+		cf X f keep gone keep2 &&
+		cf A f keep keep2 &&
+		cf B g n1 n2 &&
+		cf C g n1 n2b &&
+		depth_is 0 --fast X..A max:f &&
+		depth_is 2 --fast X..C max:g &&
+		depth_is 1 --fast X..C 1,1:g
+	)
+'
+
+test_expect_success '--fast still validates the request' '
+	git init fastbad &&
+	(
+		cd fastbad &&
+		cf X f a b &&
+		cf A f a b2 &&
+		! "$LINE_DEPTH" --fast X..A 5,5:f >out 2>err &&
+		test_must_be_empty out &&
+		test_file_not_empty err &&
+		! "$LINE_DEPTH" --fast X..A max:missing >out 2>err &&
+		test_must_be_empty out &&
+		! "$LINE_DEPTH" --fast no-such..A max:f >out 2>err &&
+		test_must_be_empty out
+	)
+'
+
+test_expect_success '--fast needs an X..Y range' '
+	git init fastrange &&
+	(
+		cd fastrange &&
+		cf X f a &&
+		cf A f a2 &&
+		! "$LINE_DEPTH" --fast A max:f >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "X\.\.Y" err &&
+		! "$LINE_DEPTH" --fast X...A max:f >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "X\.\.Y" err
+	)
+'
+
 test_done

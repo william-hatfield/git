@@ -5,8 +5,8 @@ Print the *commit depth* of lines of a file: how many distinct commits in a
 revision range touched a line, taking the largest value over the lines
 selected.
 
-    line-depth <rev-range> <start>[,<end>]:<file>
-    line-depth <rev-range> max:<file>
+    line-depth [--fast] <rev-range> <start>[,<end>]:<file>
+    line-depth [--fast] <rev-range> max:<file>
 
 For example, `line-depth origin/main..HEAD 10,40:foo.c` prints the highest
 depth among lines 10 to 40 of `foo.c` as of `HEAD`, and `max:foo.c` covers
@@ -50,6 +50,22 @@ output on stdout.
 For reviewing a branch, use the tip of the base branch as the left side
 (`origin/main..HEAD`).  Using the merge base instead also counts commits from
 the base that were merged into the branch.
+
+Speed: `--fast`
+---------------
+
+By default every selected line costs one `git log -L` run.  With `--fast`
+only lines that `git diff -U0 X Y` reports as added or modified are
+measured, since any other line has depth 0.  This needs a plain `X..Y` range
+(not `X...Y` or a single revision) and is much cheaper: on a 1349-line file
+over 3000 commits, 92 lines changed and the answer (3) took about 7 seconds
+instead of 87.
+
+The result differs from the default in one case: a line changed and then
+restored to its original text within the range is not in that diff, so
+`--fast` leaves it out while the default counts it.  Use the default when
+such lines matter.  Renames are not followed when listing candidate lines,
+so a renamed file simply yields all its lines as candidates.
 
 Tests
 -----
