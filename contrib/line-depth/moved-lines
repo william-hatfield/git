@@ -1,0 +1,91 @@
+#!/bin/sh
+#
+# Separate lines that were only moved from lines that were really changed.
+#
+#   moved-lines <X..Y> [<path>...]
+#
+# Output, one "key value" pair per line:
+#
+#   added          lines added by "git diff X Y"
+#   removed        lines removed
+#   moved_added    added lines that "git diff --color-moved" recognizes as a
+#                  moved block (so added - moved_added is genuinely new code)
+#   moved_removed  removed lines recognized as moved
+#
+# This uses the zebra mode, which only detects blocks of at least 20
+# alphanumeric characters (the plain mode would call any repeated "}" a move),
+# and exactly equal text unless --color-moved-ws is given.  The moved lines
+# are found by the colour Git paints them with, so the colours are set
+# explicitly here.
+
+usage="usage: moved-lines <X..Y> [<path>...]"
+
+die () {
+	echo "moved-lines: $*" >&2
+	exit 1
+}
+
+test $# -ge 1 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+range=$1
+shift
+
+case $range in
+*...*)
+	die "needs an X..Y range, not '$range'"
+	;;
+*..*)
+	left=${range%%..*}
+	tip=${range#*..}
+	left=${left:-HEAD}
+	tip=${tip:-HEAD}
+	;;
+*)
+	die "needs an X..Y range, not '$range'"
+	;;
+esac
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
+
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
+
+# Assigning from $(...) keeps git's exit status, unlike a pipeline.
+stat=$(git diff --numstat "$left" "$tip" -- "$@") || exit
+
+# Ordinary lines are green and red; moved ones blue and cyan, whatever the
+# user's configuration says.  Use the same diff as "git log -L".
+colored=$(git -c color.diff.new=green -c color.diff.old=red \
+	-c color.diff.newMoved=blue -c color.diff.oldMoved=cyan \
+	-c color.diff.newMovedAlternative=blue \
+	-c color.diff.oldMovedAlternative=cyan \
+	-c color.diff.newMovedDimmed=blue -c color.diff.oldMovedDimmed=cyan \
+	-c color.diff.newMovedAlternativeDimmed=blue \
+	-c color.diff.oldMovedAlternativeDimmed=cyan \
+	diff -U0 --no-ext-diff --color=always --color-moved=zebra \
+	--diff-algorithm=myers --no-indent-heuristic \
+	"$left" "$tip" -- "$@") || exit
+
+printf '%s\n' "$stat" | awk '
+	$1 != "-" && NF { added += $1; removed += $2 }
+	END {
+		print "added " added + 0
+		print "removed " removed + 0
+	}'
+
+printf '%s\n' "$colored" | awk '
+	BEGIN {
+		esc = sprintf("%c", 27)
+		moved_added_prefix = esc "[34m+"
+		moved_removed_prefix = esc "[36m-"
+	}
+	index($0, moved_added_prefix) == 1 { moved_added++ }
+	index($0, moved_removed_prefix) == 1 { moved_removed++ }
+	END {
+		print "moved_added " moved_added + 0
+		print "moved_removed " moved_removed + 0
+	}'
