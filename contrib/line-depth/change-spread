@@ -1,0 +1,121 @@
+#!/bin/sh
+#
+# Measure how scattered the change made by a range is.
+#
+#   change-spread <X..Y> [<path>...]
+#
+# Output, one "key value" pair per line:
+#
+#   commits      commits in X..Y        merges   of which are merges
+#   authors      distinct authors (by email)
+#   files        files changed between X and Y
+#   dirs         distinct directories of those files ("." for the top level)
+#   subsystems   distinct top-level directories ("." for top-level files)
+#   functions    distinct functions named in the hunk headers of the diff
+#   entropy      -sum(p*log2(p)) in bits over p = share of changed lines per
+#                file (0 for one file, 2 for four equally changed files)
+#
+# Files, functions and entropy come from "git diff X Y", the rest from
+# "git log X..Y".  Function names are whatever the diff's hunk headers show.
+
+usage="usage: change-spread <X..Y> [<path>...]"
+
+die () {
+	echo "change-spread: $*" >&2
+	exit 1
+}
+
+test $# -ge 1 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+range=$1
+shift
+
+case $range in
+*...*)
+	die "needs an X..Y range, not '$range'"
+	;;
+*..*)
+	left=${range%%..*}
+	tip=${range#*..}
+	left=${left:-HEAD}
+	tip=${tip:-HEAD}
+	;;
+*)
+	die "needs an X..Y range, not '$range'"
+	;;
+esac
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
+
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
+
+# Assigning from $(...) keeps git's exit status, unlike a pipeline.
+commits=$(git rev-list --count "$range" -- "$@") || exit
+merges=$(git rev-list --count --merges "$range" -- "$@") || exit
+emails=$(git log --format=%ae "$range" -- "$@") || exit
+names=$(git -c core.quotePath=false diff --name-only "$left" "$tip" -- "$@") ||
+	exit
+stat=$(git diff --numstat "$left" "$tip" -- "$@") || exit
+hunks=$(git -c core.quotePath=false diff -U0 --no-color --no-ext-diff \
+	--src-prefix=a/ --dst-prefix=b/ --diff-algorithm=myers \
+	"$left" "$tip" -- "$@") || exit
+
+case $names in
+*\"*)
+	die "paths needing quotes are not supported"
+	;;
+esac
+
+# Number of distinct non-empty lines on standard input.
+distinct () {
+	grep . | sort -u | wc -l | tr -d ' '
+}
+
+authors=$(printf '%s\n' "$emails" | distinct)
+files=$(printf '%s\n' "$names" | distinct)
+dirs=$(printf '%s\n' "$names" |
+	awk 'NF { if (sub(/\/[^\/]*$/, "")) d = $0; else d = "."; print d }' |
+	distinct)
+subsystems=$(printf '%s\n' "$names" |
+	awk 'NF { i = index($0, "/"); print (i ? substr($0, 1, i - 1) : ".") }' |
+	distinct)
+
+# A function is a file together with the name in a hunk header.
+functions=$(printf '%s\n' "$hunks" | awk '
+	/^\+\+\+ b\// { file = substr($0, 7) }
+	/^@@ / {
+		sub(/^@@[^@]*@@ ?/, "")
+		if ($0 != "")
+			print file "\t" $0
+	}' | distinct)
+
+entropy=$(printf '%s\n' "$stat" | awk '
+	$1 != "-" && NF {
+		c = $1 + $2
+		if (c > 0) {
+			n[NR] = c
+			total += c
+		}
+	}
+	END {
+		h = 0
+		for (i in n) {
+			p = n[i] / total
+			h -= p * log(p) / log(2)
+		}
+		printf "%.2f\n", h
+	}')
+
+echo "commits $commits"
+echo "merges $merges"
+echo "authors $authors"
+echo "files $files"
+echo "dirs $dirs"
+echo "subsystems $subsystems"
+echo "functions $functions"
+echo "entropy $entropy"
