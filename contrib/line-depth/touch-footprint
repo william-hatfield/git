@@ -1,0 +1,140 @@
+#!/bin/sh
+#
+# Report who last touched the lines that a range modifies or deletes.
+#
+#   touch-footprint <X..Y> [<path>...]
+#
+# The lines of X that "git diff X Y" changes or removes are blamed at X.  The
+# output is one "key value" pair per line:
+#
+#   lines        how many such lines there are
+#   commits      distinct commits that last touched them
+#   authors      distinct authors (by email) of those commits
+#   oldest_days  age of the oldest line at X, in days
+#   median_days  age of the median line at X (the lower one for an even count)
+#
+# Added lines have no earlier history and are not counted, and a line changed
+# then restored inside the range is not in the net diff.  This complements
+# line-depth, which covers the lines that survive in Y.
+
+usage="usage: touch-footprint <X..Y> [<path>...]"
+
+die () {
+	echo "touch-footprint: $*" >&2
+	exit 1
+}
+
+test $# -ge 1 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+range=$1
+shift
+
+case $range in
+*...*)
+	die "needs an X..Y range, not '$range'"
+	;;
+*..*)
+	left=${range%%..*}
+	tip=${range#*..}
+	left=${left:-HEAD}
+	tip=${tip:-HEAD}
+	;;
+*)
+	die "needs an X..Y range, not '$range'"
+	;;
+esac
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
+
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
+
+# Ages are measured at the left side.
+base_time=$(git log -1 --format=%ct "$left") || exit
+
+# Modified, deleted and renamed files, with their old paths.
+changes=$(git -c core.quotePath=false diff --name-status -M \
+	--diff-filter=MDR "$left" "$tip" -- "$@") || exit
+case $changes in
+*\"*)
+	die "paths needing quotes are not supported"
+	;;
+esac
+
+tab=$(printf '\t')
+records=
+
+while IFS=$tab read -r status old new
+do
+	test -n "$status" || continue
+	case $status in
+	R*)
+		;;
+	*)
+		new=$old
+		;;
+	esac
+
+	# The old-side line ranges of the file's hunks.  Use the diff that
+	# "git log -L" uses, not the configured one, so the lines are the
+	# same ones the rest of the tooling sees.
+	hunks=$(git diff -U0 --no-color --no-ext-diff -M \
+		--diff-algorithm=myers --no-indent-heuristic \
+		"$left" "$tip" -- "$old" "$new") || exit
+	ranges=$(printf '%s\n' "$hunks" | awk '
+		/^@@ / {
+			old = $2
+			sub(/^-/, "", old)
+			n = split(old, p, ",")
+			count = (n > 1) ? p[2] : 1
+			if (count > 0)
+				printf "-L%d,%d\n", p[1], p[1] + count - 1
+		}')
+	test -n "$ranges" || continue
+
+	# One line of output per blamed line: commit, author, commit time.
+	blamed=$(git blame --line-porcelain $ranges "$left" -- "$old") || exit
+	records="$records$(printf '%s\n' "$blamed" | awk '
+		substr($0, 1, 1) == "\t" {
+			printf "%s\t%s\t%s\n", sha, mail, ct
+			next
+		}
+		NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
+			sha = $1
+		}
+		$1 == "author-mail" { mail = $2 }
+		$1 == "committer-time" { ct = $2 }')
+"
+done <<EOF
+$changes
+EOF
+
+lines=0
+commits=0
+authors=0
+oldest=0
+median=0
+
+if test -n "$records"
+then
+	lines=$(printf '%s' "$records" | grep -c .)
+	commits=$(printf '%s' "$records" | cut -f1 | sort -u | wc -l | tr -d ' ')
+	authors=$(printf '%s' "$records" | cut -f2 | sort -u | wc -l | tr -d ' ')
+	ages=$(printf '%s' "$records" | cut -f3 | awk -v base="$base_time" '
+		{
+			age = int((base - $1) / 86400)
+			print (age < 0) ? 0 : age
+		}' | sort -n)
+	oldest=$(printf '%s\n' "$ages" | tail -n 1)
+	median=$(printf '%s\n' "$ages" | sed -n "$(((lines + 1) / 2))p")
+fi
+
+echo "lines $lines"
+echo "commits $commits"
+echo "authors $authors"
+echo "oldest_days $oldest"
+echo "median_days $median"

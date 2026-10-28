@@ -78,6 +78,32 @@ restored to its original text within the range is not in that diff, so
 such lines matter.  Renames are not followed when listing candidate lines,
 so a renamed file simply yields all its lines as candidates.
 
+touch-footprint
+---------------
+
+`line-depth` only sees lines that survive in the tip.  Its companion
+`touch-footprint <X..Y> [<path>...]` looks at the other side: the lines of `X`
+that the range modifies or deletes, taken from `git diff -U0 X Y` and blamed
+at `X`.  It prints one `key value` pair per line:
+
+    lines        how many such lines there are
+    commits      distinct commits that last touched them
+    authors      distinct authors (by email)
+    oldest_days  age of the oldest line at X
+    median_days  age of the median line at X (the lower one if the count is even)
+
+For example, over 60 commits of this repository it reports 2068 changed or
+removed lines last touched by 485 commits and 103 authors, the oldest 7752 days
+old, in about 20 seconds.
+
+Blame reports only the *last* commit to touch each line, so this says who owns
+the code being disturbed, not how often it changed; use `line-depth` over an
+earlier range (`X~N..X`) for that.  Lines added by the range have no history
+and a line changed and then restored inside the range is not in the net diff.
+Renames are followed (a pure rename has no footprint), `blame.ignoreRevsFile`
+and similar user configuration apply, and paths that need quoting are not
+supported.
+
 Tests
 -----
 
