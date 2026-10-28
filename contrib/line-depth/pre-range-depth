@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# Measure how contested the lines changed by a range were before it.
+#
+#   pre-range-depth <W> <X..Y> [<path>...]
+#
+# The lines of X that "git diff X Y" modifies or deletes are measured with
+# line-depth over W..X, the history before the range: the largest number of
+# commits in W..X that touched any one of them.  Output, one "key value" pair
+# per line:
+#
+#   ranges   old-side line ranges (diff hunks) examined
+#   depth    largest depth found in any of them
+#
+# W is the start of the window, for example X~100 or a release tag.  Added
+# lines have no earlier history and are not measured.
+
+usage="usage: pre-range-depth <W> <X..Y> [<path>...]"
+
+die () {
+	echo "pre-range-depth: $*" >&2
+	exit 1
+}
+
+test $# -ge 2 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+window=$1
+range=$2
+shift 2
+
+case $range in
+*...*)
+	die "needs an X..Y range, not '$range'"
+	;;
+*..*)
+	left=${range%%..*}
+	tip=${range#*..}
+	left=${left:-HEAD}
+	tip=${tip:-HEAD}
+	;;
+*)
+	die "needs an X..Y range, not '$range'"
+	;;
+esac
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
+
+git rev-parse --verify -q "$window^{commit}" >/dev/null || die "bad revision '$window'"
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'"
+
+depth_tool=$(cd "$(dirname "$0")" && pwd)/line-depth
+
+changes=$(git -c core.quotePath=false diff --name-status -M \
+	--diff-filter=MDR "$left" "$tip" -- "$@") || exit
+case $changes in
+*\"*)
+	die "paths needing quotes are not supported"
+	;;
+esac
+
+tab=$(printf '\t')
+ranges=0
+depth=0
+
+while IFS=$tab read -r status old new
+do
+	test -n "$status" || continue
+	case $status in
+	R*)
+		;;
+	*)
+		new=$old
+		;;
+	esac
+
+	# The old-side line ranges of the file's hunks, from the diff that
+	# "git log -L" uses rather than the configured one.
+	hunks=$(git diff -U0 --no-color --no-ext-diff -M \
+		--diff-algorithm=myers --no-indent-heuristic \
+		"$left" "$tip" -- "$old" "$new") || exit
+	found=$(printf '%s\n' "$hunks" | awk '
+		/^@@ / {
+			old = $2
+			sub(/^-/, "", old)
+			n = split(old, p, ",")
+			count = (n > 1) ? p[2] : 1
+			if (count > 0)
+				print p[1] "," p[1] + count - 1
+		}')
+
+	for lines in $found
+	do
+		ranges=$((ranges + 1))
+		d=$("$depth_tool" "$window..$left" "$lines:$old") || exit
+		test "$d" -le "$depth" || depth=$d
+	done
+done <<EOF
+$changes
+EOF
+
+echo "ranges $ranges"
+echo "depth $depth"
