@@ -12,6 +12,10 @@
 # reports the commits touching any of them, which is an upper bound on the
 # depth of each line in it, so a range that cannot beat the best depth found so
 # far is skipped and the others are split in halves until single lines remain.
+#
+# Options: --fast measures only lines changed between the two ends of an X..Y
+# range; --first-parent follows only first parents; --ignore-revs-file=<file>
+# leaves the commits it lists out of every count.
 
 usage="usage: line-depth [--fast] [--first-parent] [--ignore-revs-file=<file>]
                   <rev-range> <start>[,<end>]:<file>
@@ -107,6 +111,8 @@ fi
 # the empty tree counts added lines (including an unterminated last one) and
 # reports binary content as "-".
 git cat-file -e "$tip:./$file" || die "no such file at $tip: $file"
+type=$(git cat-file -t "$tip:./$file") || exit
+test "$type" = blob || die "not a file ($type): $file"
 empty_tree=$(git hash-object -t tree /dev/null) || exit
 stat=$(git diff --numstat --no-renames "$empty_tree" "$tip" -- "$file") ||
 	exit

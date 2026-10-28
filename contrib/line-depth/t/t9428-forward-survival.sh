@@ -100,4 +100,27 @@ test_expect_success 'bad input is an error with nothing on stdout' '
 	)
 '
 
+test_expect_success 'works from a subdirectory, with paths relative to it' '
+	git init subdir &&
+	(
+		cd subdir &&
+		mkdir sub &&
+		cf X sub/f l1 l2 l3 &&
+		cf A sub/f l1 l3 &&
+		cd sub &&
+		expect_is "$SURVIVAL" X..A <<-\EOF &&
+		files 1
+		lines 3
+		removed 1
+		removal_points 1
+		EOF
+		expect_is "$SURVIVAL" X..A f <<-\EOF
+		files 1
+		lines 3
+		removed 1
+		removal_points 1
+		EOF
+	)
+'
+
 test_done

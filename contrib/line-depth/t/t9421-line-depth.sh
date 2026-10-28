@@ -553,4 +553,24 @@ test_expect_success '--ignore-revs-file copes with a very long list' '
 	)
 '
 
+test_expect_success 'a directory or a submodule is not a file to measure' '
+	git init notfile &&
+	(
+		cd notfile &&
+		mkdir d &&
+		cf X d/f a &&
+		git update-index --add --cacheinfo 160000,$(git rev-parse X),sm &&
+		test_tick &&
+		git commit -q -m S &&
+		cf P d/f b &&
+		! "$LINE_DEPTH" X..P max:d >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "not a file" err &&
+		! "$LINE_DEPTH" X..P 1,1:sm >out 2>err &&
+		test_must_be_empty out &&
+		test_grep "not a file" err &&
+		depth_is 1 X..P max:d/f
+	)
+'
+
 test_done

@@ -54,6 +54,17 @@ export GIT_LITERAL_PATHSPECS
 git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
 tipsha=$(git rev-parse --verify -q "$tip^{commit}") || die "bad revision '$tip'"
 
+# Work from the top of the work tree, where the paths git reports are valid;
+# paths given on the command line are relative to where we were started.
+prefix=$(git rev-parse --show-prefix) || exit
+cdup=$(git rev-parse --show-cdup) || exit
+test -z "$cdup" || cd "$cdup" || exit
+for p
+do
+	set -- "$@" "$prefix$p"
+	shift
+done
+
 changes=$(git -c core.quotePath=false diff --name-status -M \
 	--ignore-submodules=all --diff-filter=MDR "$left" "$tip" -- "$@") || exit
 case $changes in

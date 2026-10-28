@@ -105,4 +105,25 @@ test_expect_success 'bad input is an error with nothing on stdout' '
 	)
 '
 
+test_expect_success 'works from a subdirectory, with paths relative to it' '
+	git init subdir &&
+	(
+		cd subdir &&
+		mkdir sub &&
+		cf R sub/f l1 l2 &&
+		cf E1 sub/f l1 l2b &&
+		cf X other o &&
+		cf P sub/f l1 l2c &&
+		cd sub &&
+		expect_is "$PRE" R X..P <<-\EOF &&
+		ranges 1
+		depth 1
+		EOF
+		expect_is "$PRE" R X..P f <<-\EOF
+		ranges 1
+		depth 1
+		EOF
+	)
+'
+
 test_done

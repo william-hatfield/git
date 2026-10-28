@@ -194,4 +194,23 @@ test_expect_success 'a changed submodule entry is not blamed' '
 	)
 '
 
+test_expect_success 'works from a subdirectory, with paths relative to it' '
+	git init subdir &&
+	(
+		cd subdir &&
+		mkdir sub &&
+		cfa R alice 100 sub/f l1 l2 &&
+		cfa R2 bob 105 g g1 g2 &&
+		cfa X carol 110 other o &&
+		printf "%s\n" l1x l2 >sub/f &&
+		printf "%s\n" g1 g2x >g &&
+		git add sub/f g &&
+		GIT_COMMITTER_DATE="$(((120 + 10000) * 86400)) +0000" git commit -q -m P &&
+		git tag P &&
+		cd sub &&
+		footprint_is 2 2 2 10 5 X..P &&
+		footprint_is 1 1 1 10 10 X..P f
+	)
+'
+
 test_done

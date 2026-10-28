@@ -56,6 +56,17 @@ git rev-parse --verify -q "$tip^{commit}" >/dev/null || die "bad revision '$tip'
 # Ages are measured at the left side.
 base_time=$(git log -1 --format=%ct "$left") || exit
 
+# Work from the top of the work tree, where the paths git reports are valid;
+# paths given on the command line are relative to where we were started.
+prefix=$(git rev-parse --show-prefix) || exit
+cdup=$(git rev-parse --show-cdup) || exit
+test -z "$cdup" || cd "$cdup" || exit
+for p
+do
+	set -- "$@" "$prefix$p"
+	shift
+done
+
 # Modified, deleted and renamed files, with their old paths.
 changes=$(git -c core.quotePath=false diff --name-status -M \
 	--ignore-submodules=all --diff-filter=MDR "$left" "$tip" -- "$@") || exit
