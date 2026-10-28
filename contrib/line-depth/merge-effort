@@ -1,0 +1,96 @@
+#!/bin/sh
+#
+# Estimate how hard it would be to merge two commits.
+#
+#   merge-effort <rev1> <rev2>
+#
+# Output, one "key value" pair per line:
+#
+#   merge_bases   number of best common ancestors (more than 1: criss-cross)
+#   left_only     commits reachable from <rev1> but not <rev2>
+#   right_only    commits reachable from <rev2> but not <rev1>
+#   files_left    files changed on the <rev1> side since the merge base
+#   files_right   files changed on the <rev2> side since the merge base
+#   files_both    files changed on both sides
+#   conflicts     files "git merge-tree --write-tree" reports as conflicted
+#
+# "git merge-tree --write-tree" writes the objects of the trial merge to the
+# object database but leaves the work tree, index and refs alone.
+
+usage="usage: merge-effort <rev1> <rev2>"
+
+die () {
+	echo "merge-effort: $*" >&2
+	exit 1
+}
+
+test $# = 2 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+left=$1
+right=$2
+
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+git rev-parse --verify -q "$right^{commit}" >/dev/null || die "bad revision '$right'"
+
+# Exit status 1 means no merge base; anything else above that is an error.
+bases=$(git merge-base --all "$left" "$right")
+case $? in
+0)
+	;;
+1)
+	die "no merge base between '$left' and '$right'"
+	;;
+*)
+	exit 1
+	;;
+esac
+merge_bases=$(printf '%s\n' "$bases" | grep -c .)
+base=$(git merge-base "$left" "$right") || exit
+
+counts=$(git rev-list --left-right --count "$left...$right") || exit
+tab=$(printf '\t')
+left_only=${counts%%"$tab"*}
+right_only=${counts#*"$tab"}
+
+left_files=$(git diff --name-only "$base" "$left") || exit
+right_files=$(git diff --name-only "$base" "$right") || exit
+
+# Count the non-empty lines on standard input.
+count () {
+	grep -c . || true
+}
+
+files_left=$(printf '%s\n' "$left_files" | count)
+files_right=$(printf '%s\n' "$right_files" | count)
+# The two lists are separated by an empty line.
+files_both=$(printf '%s\n\n%s\n' "$left_files" "$right_files" | awk '
+	NF == 0 { second = 1; next }
+	!second { seen[$0] = 1; next }
+	($0 in seen) { both[$0] = 1 }
+	END { n = 0; for (f in both) n++; print n }')
+
+# Exit status 1 means conflicts; the first line is the tree, then the files.
+trial=$(git merge-tree --write-tree --name-only --no-messages \
+	"$left" "$right")
+case $? in
+0)
+	conflicts=0
+	;;
+1)
+	conflicts=$(printf '%s\n' "$trial" | sed 1d | count)
+	;;
+*)
+	die "merge-tree failed"
+	;;
+esac
+
+echo "merge_bases $merge_bases"
+echo "left_only $left_only"
+echo "right_only $right_only"
+echo "files_left $files_left"
+echo "files_right $files_right"
+echo "files_both $files_both"
+echo "conflicts $conflicts"

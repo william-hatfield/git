@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# Measure the hand edits recorded in a merge commit.
+#
+#   merge-resolution <merge-commit>
+#
+# "git diff-tree --remerge-diff" compares a merge commit with an automatic
+# re-merge of its parents, so a clean merge shows nothing, and a merge with
+# conflicts shows how they were resolved, plus anything else changed while
+# merging.  Output, one "key value" pair per line:
+#
+#   parents   number of parents
+#   files     files that differ from the automatic merge
+#   added     lines added relative to it
+#   deleted   lines deleted relative to it
+#
+# Conflict markers in the automatic merge count as deleted lines, and the
+# merge.conflictStyle setting decides how many there are.
+
+usage="usage: merge-resolution <merge-commit>"
+
+die () {
+	echo "merge-resolution: $*" >&2
+	exit 1
+}
+
+test $# = 1 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+commit=$1
+
+git rev-parse --verify -q "$commit^{commit}" >/dev/null ||
+	die "bad revision '$commit'"
+git rev-parse --verify -q "$commit^2" >/dev/null ||
+	die "not a merge commit: '$commit'"
+
+parents=$(git rev-list --parents -n 1 "$commit") || exit
+parents=$(printf '%s\n' "$parents" | wc -w | tr -d ' ')
+parents=$((parents - 1))
+
+# Assigning from $(...) keeps git's exit status, unlike a pipeline.
+stat=$(git diff-tree --remerge-diff --numstat --no-commit-id "$commit") ||
+	exit
+
+printf '%s\n' "$stat" | awk -v parents="$parents" '
+	NF {
+		files++
+		if ($1 != "-") {
+			added += $1
+			deleted += $2
+		}
+	}
+	END {
+		print "parents " parents
+		print "files " files + 0
+		print "added " added + 0
+		print "deleted " deleted + 0
+	}'
