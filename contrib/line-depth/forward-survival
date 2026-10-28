@@ -18,12 +18,36 @@
 # Added lines are not counted.  Compare touch-footprint, which counts the same
 # lines from the diff and adds who last touched them.
 
-usage="usage: forward-survival <X..Y> [<path>...]"
+usage="usage: forward-survival [--jobs=<n>] <X..Y> [<path>...]"
 
 die () {
 	echo "forward-survival: $*" >&2
 	exit 1
 }
+
+jobs=1
+while test $# -gt 0
+do
+	case $1 in
+	--jobs=*)
+		jobs=${1#*=}
+		;;
+	-*)
+		echo "$usage" >&2
+		exit 129
+		;;
+	*)
+		break
+		;;
+	esac
+	shift
+done
+
+case $jobs in
+'' | *[!0-9]* | 0)
+	die "--jobs needs a positive number"
+	;;
+esac
 
 test $# -ge 1 || {
 	echo "$usage" >&2
@@ -74,28 +98,43 @@ case $changes in
 esac
 
 tab=$(printf '\t')
+
+# The blame runs are queued in a temporary directory and run through xargs,
+# --jobs of them at a time (see touch-footprint for the measurements).
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/forward-survival.XXXXXX") || exit
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
 files=0
-records=
 
 while IFS=$tab read -r status old new
 do
 	test -n "$status" || continue
 	files=$((files + 1))
-	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
-	blamed=$(git blame --reverse --porcelain "$left..$tip" -- "$old") ||
-		exit
-	# One output line per blamed line: the last revision that held it.
-	records="$records$(printf '%s\n' "$blamed" | awk '
-		substr($0, 1, 1) == "\t" { print sha; next }
-		NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
-			sha = $1
-		}')
-"
+	printf '%s' "$old" >"$tmp/$files.path"
 done <<EOF
 $changes
 EOF
 
-printf '%s' "$records" | awk -v files="$files" -v tip="$tipsha" '
+if test "$files" -gt 0
+then
+	FS_DIR=$tmp
+	FS_RANGE="$left..$tip"
+	export FS_DIR FS_RANGE
+	awk -v n="$files" 'BEGIN { for (i = 1; i <= n; i++) print i }' |
+	xargs -n 1 -P "$jobs" sh -c '
+		git blame --reverse --porcelain "$FS_RANGE" \
+			-- "$(cat "$FS_DIR/$0.path")" >"$FS_DIR/$0.out"' ||
+	die "blame failed"
+fi
+
+# One output line per blamed line: the last revision that held it.
+records=$(find "$tmp" -name '*.out' -exec cat {} + | awk '
+	substr($0, 1, 1) == "\t" { print sha; next }
+	NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
+		sha = $1
+	}')
+
+printf '%s\n' "$records" | awk -v files="$files" -v tip="$tipsha" '
 	NF {
 		lines++
 		if ($1 != tip) {

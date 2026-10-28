@@ -123,4 +123,44 @@ test_expect_success 'works from a subdirectory, with paths relative to it' '
 	)
 '
 
+test_expect_success '--jobs gives the same result and leaves no temporary files' '
+	git init jobs &&
+	(
+		cd jobs &&
+		mkdir tmp &&
+		i=1 &&
+		while test $i -le 6
+		do
+			cf R$i f$i a b &&
+			i=$((i + 1)) || return 1
+		done &&
+		cf X other o &&
+		i=1 &&
+		while test $i -le 6
+		do
+			printf "%s\n" b >f$i &&
+			git add f$i &&
+			i=$((i + 1)) || return 1
+		done &&
+		test_tick &&
+		git commit -q -m P &&
+		git tag P &&
+		expect_is "$SURVIVAL" X..P <<-\EOF &&
+		files 6
+		lines 12
+		removed 6
+		removal_points 1
+		EOF
+		"$SURVIVAL" --jobs=4 X..P >actual &&
+		test_cmp expect actual &&
+		TMPDIR="$PWD/tmp" "$SURVIVAL" --jobs=3 X..P >actual &&
+		test_cmp expect actual &&
+		test_dir_is_empty tmp &&
+		! "$SURVIVAL" --jobs=0 X..P >out 2>err &&
+		test_must_be_empty out &&
+		! "$SURVIVAL" --jobs=many X..P >out 2>err &&
+		test_must_be_empty out
+	)
+'
+
 test_done

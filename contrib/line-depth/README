@@ -149,7 +149,7 @@ existing Git commands.
 	over `W..X`, the window before the range, for the old-side lines of
 	each hunk.  Reports `ranges` and the largest `depth`.
 
-`forward-survival <X..Y> [<path>...]`::
+`forward-survival [--jobs=<n>] <X..Y> [<path>...]`::
 	`git blame --reverse` from `X`: `files`, `lines`, the number
 	`removed` by `Y`, and the distinct revisions (`removal_points`) at which
 	the last of them were still present.  Reverse blame names the last
