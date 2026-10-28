@@ -1,0 +1,60 @@
+line-depth
+==========
+
+Print the *commit depth* of lines of a file: how many distinct commits in a
+revision range touched a line, taking the largest value over the lines
+selected.
+
+    line-depth <rev-range> <start>[,<end>]:<file>
+    line-depth <rev-range> max:<file>
+
+For example, `line-depth origin/main..HEAD 10,40:foo.c` prints the highest
+depth among lines 10 to 40 of `foo.c` as of `HEAD`, and `max:foo.c` covers
+every line of the file.  The only output on success is one integer.
+
+How it works
+------------
+
+Nothing here tracks history itself.  The depth of a line is the number of
+distinct commits that `git log -L<n>,<n>:<file> <rev-range>` reports, and the
+result for a range or file is the maximum of those per-line depths -- not the
+number of commits touching the range as a whole.  Two lines edited by two
+different commits therefore give 1, not 2.  The commit that adds a line
+counts as a touch.
+
+What it does not cover
+----------------------
+
+- Line numbers refer to the file at the tip of `<rev-range>`.  Lines deleted
+  before the tip, and lines added and removed inside the range, are not
+  measured.  A depth of 0 for an emptied file does not say anything about the
+  commits that deleted its lines.
+- It follows Git's `-L` history, including its merge handling: when a merge
+  matches one parent for the line, only that parent is followed, so side
+  commits can go uncounted.  Counts can also be too high: when a hunk is
+  replaced, split or joined, every resulting line inherits the history of the
+  whole old hunk.
+- Renames are followed according to `diff.renames`, so the same history can
+  give different numbers under different configuration.
+- Binary files are rejected.  Symbolic links and submodules, and shallow
+  repositories (history cut off at the shallow boundary undercounts), are not
+  handled specially yet.
+- Only plain numbers are accepted for `<start>` and `<end>`, with
+  `<start>` <= `<end>`, and an end past the end of the file is an error.
+
+An empty revision set (for example `X..X`) prints 0 once the revisions, path
+and lines have been validated.  Any failure from Git, such as an unknown
+revision or a missing path, makes the command fail with a message and no
+output on stdout.
+
+For reviewing a branch, use the tip of the base branch as the left side
+(`origin/main..HEAD`).  Using the merge base instead also counts commits from
+the base that were merged into the branch.
+
+Tests
+-----
+
+    make -C t
+
+The tests in `t/t9420-line-depth-characterize.sh` run `git log -L` alone and
+record the behavior this tool relies on.

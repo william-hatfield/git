@@ -215,4 +215,57 @@ test_expect_success 'paths are relative to the working directory' '
 	)
 '
 
+test_expect_success 'the base tip as left boundary ignores merged-in upstream work' '
+	git init boundary &&
+	(
+		cd boundary &&
+		cf R f v0 sep s0 &&
+		cf U f v1 sep s0 &&
+		git switch -q -c topic R &&
+		cf S1 f v0 sep s1 &&
+		test_tick &&
+		git merge -q --no-edit U &&
+		cf T f v2 sep s1 &&
+		depth_is 1 U..T 1,1:f &&
+		depth_is 2 R..T 1,1:f
+	)
+'
+
+test_expect_success 'a reverted change still counts for the line that survives' '
+	git init reverted &&
+	(
+		cd reverted &&
+		cf X f old x0 &&
+		git switch -q -c side &&
+		cf C f new x0 &&
+		git switch -q - &&
+		cf D other o1 &&
+		test_tick &&
+		git merge -q --no-edit side &&
+		test_tick &&
+		git revert --no-edit C >/dev/null &&
+		cf E f old x1 &&
+		depth_is 2 X..E 1,1:f &&
+		depth_is 1 X..E 2,2:f &&
+		depth_is 2 X..E max:f
+	)
+'
+
+test_expect_success 'rename following inherits the diff.renames configuration' '
+	git init renames &&
+	(
+		cd renames &&
+		cf R0 old one &&
+		cf E1 old two &&
+		cf E2 old three &&
+		git mv old new &&
+		test_tick &&
+		git commit -q -m Rn &&
+		git tag Rn &&
+		depth_is 2 R0..Rn max:new &&
+		git config diff.renames false &&
+		depth_is 1 R0..Rn max:new
+	)
+'
+
 test_done
