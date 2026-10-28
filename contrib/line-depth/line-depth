@@ -1,0 +1,63 @@
+#!/bin/sh
+#
+# Print the largest number of distinct commits in <rev-range> that touch any
+# one line of <file> in the range <start>[,<end>], as "git log -L" tracks
+# each line back from the tip of the range.
+#
+# Line numbers refer to <file> at the tip of <rev-range>.  Only lines that
+# exist there are measured; deleted lines are not covered.
+
+usage="usage: line-depth <rev-range> <start>[,<end>]:<file>"
+
+die () {
+	echo "line-depth: $*" >&2
+	exit 1
+}
+
+test $# = 2 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+range=$1
+spec=$2
+lines=${spec%%:*}
+file=${spec#*:}
+test "$lines" != "$spec" && test -n "$file" || die "bad range '$spec'; $usage"
+
+case $lines in
+*,*)
+	start=${lines%%,*}
+	end=${lines#*,}
+	;;
+*)
+	start=$lines
+	end=$lines
+	;;
+esac
+
+case $start$end in
+*[!0-9]*)
+	die "only numeric line numbers are supported: '$lines'"
+	;;
+esac
+test -n "$start" && test -n "$end" || die "bad range '$spec'; $usage"
+test "$start" -ge 1 || die "line numbers start at 1: '$lines'"
+
+max=0
+i=$start
+while test "$i" -le "$end"
+do
+	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
+	commits=$(git log -L"$i,$i:$file" --format=%H --no-patch "$range") ||
+		exit
+	if test -n "$commits"
+	then
+		n=$(printf '%s\n' "$commits" | sort -u | wc -l)
+		n=$((n + 0))
+		test "$n" -gt "$max" && max=$n
+	fi
+	i=$((i + 1))
+done
+
+echo "$max"
