@@ -25,24 +25,59 @@ lines=${spec%%:*}
 file=${spec#*:}
 test "$lines" != "$spec" && test -n "$file" || die "bad range '$spec'; $usage"
 
-case $lines in
-*,*)
-	start=${lines%%,*}
-	end=${lines#*,}
-	;;
-*)
-	start=$lines
-	end=$lines
-	;;
-esac
+tip=${range#*..}
+tip=${tip#.}
+tip=${tip:-HEAD}
 
-case $start$end in
-*[!0-9]*)
-	die "only numeric line numbers are supported: '$lines'"
-	;;
-esac
-test -n "$start" && test -n "$end" || die "bad range '$spec'; $usage"
-test "$start" -ge 1 || die "line numbers start at 1: '$lines'"
+if test "$lines" = max
+then
+	# Every line of the file at the tip.  Git already knows how many that
+	# is: --numstat against the empty tree counts added lines (including an
+	# unterminated last one) and reports binary content as "-".
+	GIT_LITERAL_PATHSPECS=1
+	export GIT_LITERAL_PATHSPECS
+	git cat-file -e "$tip:./$file" || die "no such file at $tip: $file"
+	empty_tree=$(git hash-object -t tree /dev/null) || exit
+	stat=$(git diff --numstat --no-renames "$empty_tree" "$tip" -- "$file") ||
+		exit
+	n=${stat%%	*}
+	test "$n" != - || die "binary file, no lines to measure: $file"
+	start=1
+	end=${n:-0}
+else
+	case $lines in
+	*,*)
+		start=${lines%%,*}
+		end=${lines#*,}
+		;;
+	*)
+		start=$lines
+		end=$lines
+		;;
+	esac
+	case $start$end in
+	*[!0-9]*)
+		die "only numeric line numbers are supported: '$lines'"
+		;;
+	esac
+	test -n "$start" && test -n "$end" || die "bad range '$spec'; $usage"
+	test "$start" -ge 1 || die "line numbers start at 1: '$lines'"
+fi
+
+# "git log -L" refuses a revision set that is empty because X and Y name the
+# same commit, so recognize the empty set here -- but only after checking that
+# the revisions, path and lines are valid at the tip of the range.
+count=$(git rev-list --count "$range") || exit
+if test "$count" = 0
+then
+	if test "$start" -le "$end"
+	then
+		git log -L"$start,$end:$file" -n1 --format= --no-patch "$tip" \
+			>/dev/null || exit
+	fi
+	echo 0
+	exit 0
+fi
 
 max=0
 i=$start
