@@ -34,3 +34,50 @@ expect_is () {
 	"$@" >actual &&
 	test_cmp expect actual
 }
+
+# A deterministic random history of one file "f": commit c0 has <lines> lines
+# and each later commit c1..c<n> modifies, inserts or deletes one to three
+# of them.  Every new line has text that never occurred before, so a line's
+# identity is never ambiguous and nothing is ever restored.
+#   random_history <seed> <commits> <lines>
+random_history () {
+	seed=$1 count=$2 size=$3 &&
+	awk -v n="$size" "BEGIN { for (i = 1; i <= n; i++) print \"i\" i }" >f &&
+	git add f &&
+	test_tick &&
+	git commit -q -m c0 &&
+	git tag c0 &&
+	k=1 &&
+	while test "$k" -le "$count"
+	do
+		awk -v seed=$((seed * 1000 + k)) -v uid="$seed.$k" '
+			BEGIN { srand(seed) }
+			{ line[NR] = $0 }
+			END {
+				n = NR
+				ops = 1 + int(rand() * 3)
+				for (o = 0; o < ops; o++) {
+					r = rand()
+					i = 1 + int(rand() * n)
+					if (r < 0.55) {
+						line[i] = "m" uid "." o
+					} else if (r < 0.8) {
+						for (j = n; j > i; j--)
+							line[j + 1] = line[j]
+						line[i + 1] = "n" uid "." o
+						n++
+					} else if (n > 4) {
+						for (j = i; j < n; j++)
+							line[j] = line[j + 1]
+						n--
+					}
+				}
+				for (i = 1; i <= n; i++)
+					print line[i]
+			}' f >g &&
+		mv g f &&
+		git commit -q -a -m c$k &&
+		git tag c$k &&
+		k=$((k + 1)) || return 1
+	done
+}

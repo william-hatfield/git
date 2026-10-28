@@ -13,6 +13,7 @@ TEST_DIRECTORY="$CURR_DIR"/../../../t
 LINE_DEPTH="$CURR_DIR"/../line-depth
 
 . "$TEST_DIRECTORY"/test-lib.sh
+. "$CURR_DIR"/lib-line-depth.sh
 
 # Write the given lines to <path>, commit them, and tag the commit.
 #   cf <tag> <path> <line>...
@@ -571,6 +572,36 @@ test_expect_success 'a directory or a submodule is not a file to measure' '
 		test_grep "not a file" err &&
 		depth_is 1 X..P max:d/f
 	)
+'
+
+test_expect_success 'exact, fast and first-parent agree with the brute force on random histories' '
+	for seed in 1 2 3 4 5 6 7 8
+	do
+		git init fuzz$seed &&
+		(
+			cd fuzz$seed &&
+			random_history $seed 10 16 &&
+			n=$(wc -l <f | tr -d " ") &&
+			e=$n &&
+			test "$e" -le 9 || e=9 &&
+			oracle c0..c10 1 $n f >expect.all &&
+			oracle c0..c10 3 $e f >expect.mid &&
+			for mode in "" --fast --first-parent
+			do
+				"$LINE_DEPTH" $mode c0..c10 max:f >actual &&
+				test_cmp expect.all actual &&
+				"$LINE_DEPTH" $mode c0..c10 3,$e:f >actual &&
+				test_cmp expect.mid actual || return 1
+			done &&
+			# a sub-range is never deeper than the range containing it
+			whole=$("$LINE_DEPTH" c0..c10 3,$e:f) &&
+			sub=$("$LINE_DEPTH" c0..c10 4,4:f) &&
+			test "$sub" -le "$whole" &&
+			# and the whole file is at least as deep as any part
+			all=$("$LINE_DEPTH" c0..c10 max:f) &&
+			test "$whole" -le "$all"
+		) || return 1
+	done
 '
 
 test_done
