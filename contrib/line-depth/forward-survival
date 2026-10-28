@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+# Follow the lines of X forward and count those that did not survive to Y.
+#
+#   forward-survival <X..Y> [<path>...]
+#
+# "git blame --reverse X..Y" walks history forward: for each line of a file at
+# X it names the last revision in which that line still existed.  For the files
+# that the range modifies, deletes or renames, this prints, one "key value"
+# pair per line:
+#
+#   files           files examined
+#   lines           lines those files had at X
+#   removed         lines that were gone by Y
+#   removal_points  distinct revisions that were the last to hold a removed
+#                   line (the removal happened in a child of each)
+#
+# Added lines are not counted.  Compare touch-footprint, which counts the same
+# lines from the diff and adds who last touched them.
+
+usage="usage: forward-survival <X..Y> [<path>...]"
+
+die () {
+	echo "forward-survival: $*" >&2
+	exit 1
+}
+
+test $# -ge 1 || {
+	echo "$usage" >&2
+	exit 129
+}
+
+range=$1
+shift
+
+case $range in
+*...*)
+	die "needs an X..Y range, not '$range'"
+	;;
+*..*)
+	left=${range%%..*}
+	tip=${range#*..}
+	left=${left:-HEAD}
+	tip=${tip:-HEAD}
+	;;
+*)
+	die "needs an X..Y range, not '$range'"
+	;;
+esac
+
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
+
+git rev-parse --verify -q "$left^{commit}" >/dev/null || die "bad revision '$left'"
+tipsha=$(git rev-parse --verify -q "$tip^{commit}") || die "bad revision '$tip'"
+
+changes=$(git -c core.quotePath=false diff --name-status -M \
+	--diff-filter=MDR "$left" "$tip" -- "$@") || exit
+case $changes in
+*\"*)
+	die "paths needing quotes are not supported"
+	;;
+esac
+
+tab=$(printf '\t')
+files=0
+records=
+
+while IFS=$tab read -r status old new
+do
+	test -n "$status" || continue
+	files=$((files + 1))
+	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
+	blamed=$(git blame --reverse --porcelain "$left..$tip" -- "$old") ||
+		exit
+	# One output line per blamed line: the last revision that held it.
+	records="$records$(printf '%s\n' "$blamed" | awk '
+		substr($0, 1, 1) == "\t" { print sha; next }
+		NF >= 3 && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 ~ /^[0-9]+$/ {
+			sha = $1
+		}')
+"
+done <<EOF
+$changes
+EOF
+
+printf '%s' "$records" | awk -v files="$files" -v tip="$tipsha" '
+	NF {
+		lines++
+		if ($1 != tip) {
+			removed++
+			points[$1] = 1
+		}
+	}
+	END {
+		n = 0
+		for (p in points)
+			n++
+		print "files " files
+		print "lines " lines + 0
+		print "removed " removed + 0
+		print "removal_points " n
+	}'
