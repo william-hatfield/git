@@ -445,4 +445,31 @@ test_expect_success 'a large uniform change needs few git log runs' '
 	)
 '
 
+test_expect_success '--fast picks the lines -L picks, whatever the diff configuration' '
+	git init slide &&
+	(
+		cd slide &&
+		printf "%s\n" a b "" a "" b a b >f &&
+		git add f &&
+		test_tick &&
+		git commit -q -m X &&
+		git tag X &&
+		# one inserted duplicate: the new b is line 6 or 7, equally valid
+		printf "%s\n" a b "" a "" b b a b >f &&
+		git commit -q -a -m A &&
+		git tag A &&
+		depth_is 1 X..A max:f &&
+		depth_is 1 --fast X..A max:f &&
+		depth_is 1 --fast X..A 7,7:f &&
+		git config diff.algorithm patience &&
+		git config diff.indentHeuristic true &&
+		git config diff.context 9 &&
+		git config color.ui always &&
+		git config log.showSignature true &&
+		git config format.pretty oneline &&
+		depth_is 1 X..A max:f &&
+		depth_is 1 --fast X..A max:f
+	)
+'
+
 test_done

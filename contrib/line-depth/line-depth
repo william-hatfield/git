@@ -162,8 +162,12 @@ if test -n "$fast"
 then
 	# A line neither added nor modified between X and Y has depth 0, unless
 	# it was changed and then restored inside the range, which this misses.
-	# Search each changed hunk of the file, as it is on the new side.
+	# Search each changed hunk of the file, as it is on the new side.  Use
+	# the diff "git log -L" uses (plain Myers, no indent heuristic) rather
+	# than the configured one: where equal lines are repeated, diffs differ
+	# in which of them they call added, and only -L's pick is tracked.
 	hunks=$(git diff -U0 --no-color --no-ext-diff --no-renames \
+		--diff-algorithm=myers --no-indent-heuristic \
 		"$left" "$tip" -- "$file") || exit
 	ranges=$(printf '%s\n' "$hunks" | awk -v s="$start" -v e="$end" '
 		/^@@ / {
