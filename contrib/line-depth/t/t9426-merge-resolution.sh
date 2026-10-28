@@ -125,4 +125,80 @@ test_expect_success 'bad input is an error with nothing on stdout' '
 	)
 '
 
+test_expect_success 'clean merges of independent random edits have no resolution, evil ones count exactly' '
+	for seed in 1 2 3 4
+	do
+		git init rnd$seed &&
+		(
+			cd rnd$seed &&
+			awk "BEGIN { for (i = 1; i <= 10; i++) print \"i\" i }" >a &&
+			awk "BEGIN { for (i = 1; i <= 10; i++) print \"j\" i }" >b &&
+			git add a b &&
+			test_tick &&
+			git commit -q -m base &&
+			git tag base &&
+			main=$(git symbolic-ref --short HEAD) &&
+			RANDOM_FILE=a random_edits $seed left 3 &&
+			git switch -q -c right base &&
+			RANDOM_FILE=b random_edits $((seed + 50)) right 3 &&
+			git switch -q "$main" &&
+			test_tick &&
+			git merge -q --no-edit right &&
+			git tag clean &&
+			expect_is "$RESOLUTION" clean <<-\EOF &&
+			parents 2
+			files 0
+			added 0
+			deleted 0
+			EOF
+			git reset -q --hard left3 &&
+			git merge -q --no-commit --no-ff right &&
+			test_seq $seed >extra &&
+			git add extra &&
+			test_tick &&
+			git commit -q -m evil &&
+			git tag evil &&
+			expect_is "$RESOLUTION" evil <<-EOF
+			parents 2
+			files 1
+			added $seed
+			deleted 0
+			EOF
+		) || return 1
+	done
+'
+
+test_expect_success 'merge.conflictStyle changes how many marker lines count as deleted' '
+	git init style &&
+	(
+		cd style &&
+		cf X f base &&
+		git switch -q -c left &&
+		cf L f ours &&
+		git switch -q -c right X &&
+		cf R f theirs &&
+		git switch -q left &&
+		test_must_fail git merge --no-edit right &&
+		printf "%s\n" resolved >f &&
+		git add f &&
+		test_tick &&
+		git commit -q --no-edit &&
+		git tag M &&
+		expect_is "$RESOLUTION" M <<-\EOF &&
+		parents 2
+		files 1
+		added 1
+		deleted 5
+		EOF
+		# diff3 style adds the "|||||||" marker and the base line
+		git config merge.conflictStyle diff3 &&
+		expect_is "$RESOLUTION" M <<-\EOF
+		parents 2
+		files 1
+		added 1
+		deleted 7
+		EOF
+	)
+'
+
 test_done

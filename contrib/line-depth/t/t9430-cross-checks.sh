@@ -381,4 +381,93 @@ test_expect_success 'change-spread invariants over files in nested directories' 
 	done
 '
 
+# A history with a side branch from c1, a diverging mainline, a real merge M
+# (conflicts settled with -X theirs) and two later commits t1 t2.
+#   merge_history <seed>
+merge_history () {
+	random_history $1 3 14 &&
+	main=$(git symbolic-ref --short HEAD) &&
+	git switch -q -c side c1 &&
+	random_edits $(($1 + 100)) s 3 &&
+	git switch -q "$main" &&
+	random_edits $(($1 + 200)) m 2 &&
+	test_tick &&
+	git merge -q -X theirs --no-edit side &&
+	git tag M &&
+	random_edits $(($1 + 300)) t 2
+}
+
+test_expect_success 'churn-ratio over a merge history counts exactly the non-merge commits' '
+	for seed in 1 2 3 4
+	do
+		git init churnmerge$seed &&
+		(
+			cd churnmerge$seed &&
+			merge_history $seed &&
+			gross=0 &&
+			for c in $(git rev-list --no-merges c0..t2)
+			do
+				gross=$((gross + $(numstat_total $c^ $c))) || return 1
+			done &&
+			net=$(numstat_total c0 t2) &&
+			rework=$((gross - net)) &&
+			if test $rework -lt 0
+			then
+				rework=0
+			fi &&
+			expect_is "$BIN"/churn-ratio c0..t2 <<-EOF &&
+			gross $gross
+			net $net
+			rework $rework
+			EOF
+			test "$gross" -gt 0
+		) || return 1
+	done
+'
+
+test_expect_success 'merge-effort divergence and file sets equal independent calculations' '
+	for seed in 1 2 3 4
+	do
+		git init effort$seed &&
+		(
+			cd effort$seed &&
+			merge_history $seed &&
+			base=$(git merge-base M^1 M^2) &&
+			left=M^1 right=M^2 &&
+			git diff --name-only $base $left | sort >left.files &&
+			git diff --name-only $base $right | sort >right.files &&
+			comm -12 left.files right.files >both.files &&
+			expect_is "$BIN"/merge-effort $left $right <<-EOF
+			merge_bases $(git merge-base --all $left $right | wc -l | tr -d " ")
+			left_only $(git rev-list --count $right..$left)
+			right_only $(git rev-list --count $left..$right)
+			files_left $(wc -l <left.files | tr -d " ")
+			files_right $(wc -l <right.files | tr -d " ")
+			files_both $(wc -l <both.files | tr -d " ")
+			conflicts $(get conflicts "$BIN"/merge-effort $left $right)
+			EOF
+		) || return 1
+	done
+'
+
+test_expect_success 'forward-survival and touch-footprint bounds hold across merges' '
+	for seed in 1 2 3 4
+	do
+		git init survmerge$seed &&
+		(
+			cd survmerge$seed &&
+			merge_history $seed &&
+			lines=$(get lines "$BIN"/forward-survival c1..t2) &&
+			removed=$(get removed "$BIN"/forward-survival c1..t2) &&
+			points=$(get removal_points "$BIN"/forward-survival c1..t2) &&
+			test "$removed" -le "$lines" &&
+			test "$points" -le "$removed" &&
+			footprint=$(get lines "$BIN"/touch-footprint c1..t2) &&
+			test "$footprint" -ge 1 &&
+			commits=$(get commits "$BIN"/touch-footprint c1..t2) &&
+			test "$commits" -le "$footprint"
+		) || return 1
+	done
+'
+
 test_done
