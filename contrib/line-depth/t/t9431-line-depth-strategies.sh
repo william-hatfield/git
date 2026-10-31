@@ -25,7 +25,7 @@ oracle () {
 	echo "$o_best"
 }
 
-STRATEGIES="none sat cap group sat,cap sat,cap,group"
+STRATEGIES="none sat cap group suffix path sat,cap,group,suffix,path"
 
 check_all () {
 	n=$(git show "${1#*..}:f" | wc -l | tr -d " ") &&
@@ -49,6 +49,7 @@ test_expect_success 'strategies agree with the oracle on linear histories' '
 		git init lin$seed &&
 		(
 			cd lin$seed &&
+			git config diff.renames false &&
 			random_history $seed 10 16 &&
 			check_all c0..c10
 		) || return 1
@@ -61,6 +62,7 @@ test_expect_success 'strategies agree with the oracle across merges' '
 		git init mrg$seed &&
 		(
 			cd mrg$seed &&
+			git config diff.renames false &&
 			random_history $seed 3 14 &&
 			main=$(git symbolic-ref --short HEAD) &&
 			git switch -q -c side c1 &&

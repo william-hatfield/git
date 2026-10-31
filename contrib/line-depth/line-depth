@@ -168,6 +168,20 @@ fi
 
 max=0
 
+# For -L on history with merges: the nearest first-parent merge M from the tip.
+suffix_tip=
+before=0
+case $range in
+*...*) ;;
+*..*)
+	suffix_tip=$(git rev-list --first-parent --merges -n1 "$range") &&
+	if test -n "$suffix_tip"
+	then
+		before=$(git rev-list --count $first_parent "${range%%..*}..$suffix_tip") || exit
+	fi
+	;;
+esac
+
 has () {
 	case $strategy in
 	*,"$1",*) return 0 ;;
@@ -176,6 +190,14 @@ has () {
 }
 
 # Grouped ranges bound their lines only if history has no merges to walk.
+if has path && test "$(git config --bool diff.renames)" = false
+then
+	# No renames: only commits changing the file can touch its lines.
+	pathcount=$(git rev-list --count --full-history --parents \
+		$first_parent "$range" -- "$file") || exit
+	test "$pathcount" -ge "$count" || count=$pathcount
+fi
+
 single_parent=
 if test -n "$first_parent" ||
 	test "$(git rev-list --count --merges "$range")" = 0
@@ -241,6 +263,15 @@ search () {
 		# With one parent per step, a line's commits are among those
 		# of any range holding it.
 		u=$(union "$1" "$2") || exit
+		test "$u" -gt "$max" || return 0
+	fi
+	if has suffix && test -z "$single_parent" && test -n "$suffix_tip" && test -z "$ignored"
+	then
+		# Past the nearest first-parent merge M, steps have one parent:
+		# the group's commits there, plus everything before M, bound it.
+		u=$(git log -L"$1,$2:$file" --format=%H --no-patch \
+			$first_parent "$suffix_tip..$tip" | wc -l) || exit
+		u=$((u + before))
 		test "$u" -gt "$max" || return 0
 	fi
 	search "$1" $((($1 + $2) / 2)) &&
