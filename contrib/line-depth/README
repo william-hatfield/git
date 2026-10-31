@@ -30,12 +30,19 @@ number of commits touching the range as a whole.  Two lines edited by two
 different commits therefore give 1, not 2.  The commit that adds a line
 counts as a touch.
 
-To avoid one `git log -L` run per line, it runs `git log -L` over a whole range
-of lines first.  The commits reported for the range are an upper bound on the
-depth of every line in it, so a range that cannot beat the best depth seen so
-far is skipped, and any other range is split in halves until single lines
-remain.  A file in which every line was touched once needs only about twice
-log2(lines) runs, not one per line.
+A range of lines is not a safe upper bound once merges are involved: a merge
+follows whichever parent matches the whole range, while a single line may
+follow another.  So grouped runs are used only when the walk has one parent
+per step (no merges, or `--first-parent`); otherwise each line gets its own
+`git log -L` run, executed in parallel (`LINE_DEPTH_JOBS`, default 8).
+Cheap exact shortcuts are also applied: stop once the best depth reaches the
+commit count, and stop a line's log after `best + 1` commits.
+
+`--strategy=<list>` (comma separated; mainly for testing and measuring)
+chooses among `sat`, `cap`, `group`, `par`, `suffix`, `path`; the default is
+`sat,cap,group,par`.  `suffix` and `path` are extra bounds that are exact but
+rarely tighter than the best depth in merge-heavy ranges; `path` applies only
+with `diff.renames=false`.
 
 What it does not cover
 ----------------------
@@ -71,14 +78,10 @@ Speed: `--fast`
 ---------------
 
 With `--fast` only the lines that `git diff -U0 X Y` reports as added or
-modified are searched, one range per changed hunk, since any other line has
-depth 0.  Every such line has depth at least 1, so a hunk whose commits number
-exactly 1 is settled by a single run.  This needs a plain `X..Y` range (not
-`X...Y` or a single revision).
-
-On a 1210-line file over 3000 commits (answer 2) the default takes about 9
-seconds and `--fast` about 4, against roughly 90 seconds for one `git log -L`
-run per line.
+modified are searched, since any other line has depth 0.  This needs a plain
+`X..Y` range (not `X...Y` or a single revision).  It is a competitor to the
+default for speed, not a faster way to the same answer on the same lines: it
+measures fewer lines.
 
 The result differs from the default in one case: a line changed and then
 restored to its original text within the range is not in that diff, so
