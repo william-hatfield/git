@@ -362,27 +362,26 @@ test_expect_success 'reversed endpoints are swapped and an end past EOF is clamp
 	)
 '
 
-# Brute force: one "git log -L" per line, the largest count.  $ORACLE_FLAGS
-# are extra "git log" options and $ORACLE_IGNORE a file of commits not to
-# count.
-#   oracle <range> <start> <end> <file>
+# Brute force: one "git log -L" per line, the largest count.  Fails if any
+# "git log" does.  The optional arguments are extra "git log" options and a
+# file of commits not to count.
+#   oracle <range> <start> <end> <file> [<log options> [<ignore file>]]
 oracle () {
-	o_best=0 &&
-	o_i=$2 &&
+	o_best=0
+	o_i=$2
 	while test "$o_i" -le "$3"
 	do
-		git log -L"$o_i,$o_i:$4" $ORACLE_FLAGS --format=%H --no-patch "$1" >oracle.out &&
-		if test -n "$ORACLE_IGNORE"
+		git log -L"$o_i,$o_i:$4" $5 --format=%H --no-patch "$1" >oracle.out || return 1
+		if test -n "$6"
 		then
-			{ grep -v -x -F -f "$ORACLE_IGNORE" oracle.out >oracle.kept ||
-				test $? = 1; } &&
-			mv oracle.kept oracle.out
-		fi &&
-		o_n=$(wc -l <oracle.out) &&
-		o_n=$((o_n + 0)) &&
-		test "$o_n" -gt "$o_best" && o_best=$o_n
+			{ grep -v -x -F -f "$6" oracle.out >oracle.kept || test $? = 1; } &&
+			mv oracle.kept oracle.out || return 1
+		fi
+		o_n=$(wc -l <oracle.out)
+		o_n=$((o_n + 0))
+		test "$o_n" -le "$o_best" || o_best=$o_n
 		o_i=$((o_i + 1))
-	done &&
+	done
 	echo "$o_best"
 }
 
@@ -634,7 +633,7 @@ test_expect_success 'exact, fast and first-parent agree with the brute force acr
 				tip=${r#*..} &&
 				n=$(git show "$tip:f" | wc -l | tr -d " ") &&
 				oracle $r 1 $n f >expect.exact &&
-				ORACLE_FLAGS=--first-parent oracle $r 1 $n f >expect.fp &&
+				oracle $r 1 $n f --first-parent >expect.fp &&
 				"$LINE_DEPTH" $r max:f >actual &&
 				test_cmp expect.exact actual &&
 				"$LINE_DEPTH" --fast $r max:f >actual &&
@@ -658,7 +657,7 @@ test_expect_success '--ignore-revs-file agrees with the brute force on random hi
 			git rev-parse c3 c7 c8 >ignored &&
 			n=$(wc -l <f | tr -d " ") &&
 			oracle c0..c10 1 $n f >expect.all &&
-			ORACLE_IGNORE=ignored oracle c0..c10 1 $n f >expect &&
+			oracle c0..c10 1 $n f "" ignored >expect &&
 			"$LINE_DEPTH" --ignore-revs-file=ignored c0..c10 max:f >actual &&
 			test_cmp expect actual &&
 			"$LINE_DEPTH" --fast --ignore-revs-file=ignored c0..c10 max:f >actual &&
