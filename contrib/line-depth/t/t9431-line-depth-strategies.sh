@@ -77,4 +77,28 @@ test_expect_success 'strategies agree with the oracle across merges' '
 	done
 '
 
+test_expect_success 'ignored revisions agree with the oracle across merges' '
+	(
+		cd mrg3 &&
+		n=$(git show t2:f | wc -l | tr -d " ") &&
+		git rev-list c0..t2 | sed -n "2p;4p;6p" >ign &&
+		best=0 &&
+		i=1 &&
+		while test $i -le $n
+		do
+			c=$(git log -L$i,$i:f --format=%H --no-patch c0..t2 |
+				{ grep -v -x -F -f ign || true; } | wc -l) &&
+			c=$((c + 0)) &&
+			{ test $c -le $best || best=$c; } &&
+			i=$((i + 1)) || exit 1
+		done &&
+		echo $best >expect &&
+		for s in none par sat,cap,group,par
+		do
+			"$LINE_DEPTH" --strategy=$s --ignore-revs-file=ign c0..t2 max:f >actual &&
+			test_cmp expect actual || return 1
+		done
+	)
+'
+
 test_done

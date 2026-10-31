@@ -281,12 +281,17 @@ search () {
 # Search lines $1 to $2; with "par" and merges around, run the independent
 # single-line queries in parallel rather than splitting groups.
 top () {
-	if has par && test -z "$single_parent" && test -z "$ignored"
+	if has par && test -z "$single_parent"
 	then
+		skipfile=${TMPDIR:-/tmp}/line-depth-skip.$$
+		printf '%s\n' "$ignored" >"$skipfile" || exit
 		best=$(seq "$1" "$2" | xargs -P "${LINE_DEPTH_JOBS:-8}" -I{} sh -c '
 			n=$(git log -L"$1,$1:$2" --format=%H --no-patch $3 "$4") || exit 1
-			test -z "$n" && echo 0 || printf "%s\n" "$n" | wc -l | tr -d " "
-		' _ {} "$file" "$first_parent" "$range" | sort -n | tail -1) || exit
+			test -z "$n" && { echo 0; exit; }
+			printf "%s\n" "$n" | grep -c -v -x -F -f "$5"
+			test $? -le 1
+		' _ {} "$file" "$first_parent" "$range" "$skipfile" | sort -n | tail -1) || exit
+		rm -f "$skipfile"
 		test "${best:-0}" -le "$max" || max=$best
 	else
 		search "$1" "$2"
