@@ -25,7 +25,7 @@ oracle () {
 	echo "$o_best"
 }
 
-STRATEGIES="none sat cap group suffix path sat,cap,group,suffix,path"
+STRATEGIES="none sat cap group suffix path par sat,cap,group,suffix,path"
 
 check_all () {
 	n=$(git show "${1#*..}:f" | wc -l | tr -d " ") &&

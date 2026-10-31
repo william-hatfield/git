@@ -26,7 +26,7 @@ die () {
 	exit 1
 }
 
-strategy=,sat,cap,group,
+strategy=,sat,cap,group,par,
 fast=
 first_parent=
 ignore_file=
@@ -278,6 +278,21 @@ search () {
 	search $((($1 + $2) / 2 + 1)) "$2"
 }
 
+# Search lines $1 to $2; with "par" and merges around, run the independent
+# single-line queries in parallel rather than splitting groups.
+top () {
+	if has par && test -z "$single_parent" && test -z "$ignored"
+	then
+		best=$(seq "$1" "$2" | xargs -P "${LINE_DEPTH_JOBS:-8}" -I{} sh -c '
+			n=$(git log -L"$1,$1:$2" --format=%H --no-patch $3 "$4") || exit 1
+			test -z "$n" && echo 0 || printf "%s\n" "$n" | wc -l | tr -d " "
+		' _ {} "$file" "$first_parent" "$range" | sort -n | tail -1) || exit
+		test "${best:-0}" -le "$max" || max=$best
+	else
+		search "$1" "$2"
+	fi
+}
+
 if test -n "$fast"
 then
 	# A line neither added nor modified between X and Y has depth 0, unless
@@ -305,11 +320,11 @@ then
 	set -- $ranges
 	while test $# -ge 2
 	do
-		search "$1" "$2"
+		top "$1" "$2"
 		shift 2
 	done
 else
-	search "$start" "$end"
+	top "$start" "$end"
 fi
 
 echo "$max"
