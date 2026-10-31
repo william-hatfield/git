@@ -26,6 +26,7 @@ die () {
 	exit 1
 }
 
+strategy=,sat,cap,group,
 fast=
 first_parent=
 ignore_file=
@@ -34,6 +35,9 @@ do
 	case $1 in
 	--fast)
 		fast=1
+		;;
+	--strategy=*)
+		strategy=,${1#*=},
 		;;
 	--first-parent)
 		first_parent=--first-parent
@@ -164,6 +168,21 @@ fi
 
 max=0
 
+has () {
+	case $strategy in
+	*,"$1",*) return 0 ;;
+	esac
+	return 1
+}
+
+# Grouped ranges bound their lines only if history has no merges to walk.
+single_parent=
+if test -n "$first_parent" ||
+	test "$(git rev-list --count --merges "$range")" = 0
+then
+	single_parent=1
+fi
+
 # Number of commits "git log -L" reports for any of the lines $1 to $2.
 union () {
 	# Assigning from $(...) keeps git's exit status, unlike a pipeline.
@@ -191,23 +210,38 @@ union () {
 	fi
 }
 
+# Number of commits "git log -L" reports for line $1, stopping after $2.
+capped () {
+	git log -n "$2" -L"$1,$1:$file" --format=%H --no-patch \
+		$first_parent "$range" | wc -l | tr -d ' '
+}
+
+# Raise $max to the depth of line $1, if it exceeds it.
+leaf () {
+	if has cap && test -z "$ignored" && test "$max" -gt 0
+	then
+		# At most $max commits means the log ended: it cannot win.
+		n=$(capped "$1" $((max + 1))) || exit
+		test "$n" -gt "$max" || return 0
+	fi
+	u=$(union "$1" "$1") || exit
+	test "$u" -le "$max" || max=$u
+}
+
 # Raise $max to the largest depth among lines $1 to $2, if it exceeds it.
 search () {
-	u=$(union "$1" "$2") || exit
-	test "$u" -gt "$max" || return 0
+	has sat && test "$max" -ge "$count" && return 0
 	if test "$1" -eq "$2"
 	then
-		# A single line: its union is its depth.
-		max=$u
-		return 0
+		leaf "$1"
+		return
 	fi
-	if test -n "$fast" && test -z "$ignored" && test "$u" -eq 1
+	if has group && test -n "$single_parent"
 	then
-		# Every line here was changed between X and Y, so each has a
-		# depth of at least 1 (unless commits are being ignored), and
-		# at most the union.
-		max=1
-		return 0
+		# With one parent per step, a line's commits are among those
+		# of any range holding it.
+		u=$(union "$1" "$2") || exit
+		test "$u" -gt "$max" || return 0
 	fi
 	search "$1" $((($1 + $2) / 2)) &&
 	search $((($1 + $2) / 2 + 1)) "$2"

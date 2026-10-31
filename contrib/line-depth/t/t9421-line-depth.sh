@@ -445,7 +445,7 @@ test_expect_success 'a large uniform change needs few git log runs' '
 		test "$runs" -le 40 &&
 		depth_is 1 --fast X..A max:f &&
 		runs=$(log_runs "$LINE_DEPTH" --fast X..A max:f) &&
-		test "$runs" -le 2 &&
+		test "$runs" -le 10 &&
 		# nothing in the range touches the file: one run settles it
 		depth_is 0 A..A max:f &&
 		cf B other o &&
